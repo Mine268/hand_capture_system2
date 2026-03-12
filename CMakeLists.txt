@@ -103,6 +103,23 @@ target_link_libraries(newnewhand_pipeline
         newnewhand_visualization
 )
 
+add_library(newnewhand_fusion STATIC
+    src/fusion/stereo_hand_fuser.cpp
+)
+target_include_directories(newnewhand_fusion
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/perception
+)
+target_link_libraries(newnewhand_fusion
+    PUBLIC
+        newnewhand_pipeline
+        newnewhand_calibration
+        newnewhand_visualization
+        ${OpenCV_LIBS}
+)
+
 add_library(newnewhand_calibration STATIC
     src/calibration/stereo_calibrator.cpp
     src/calibration/stereo_calibration_visualizer.cpp
@@ -164,5 +181,16 @@ if(BUILD_DEMOS)
     target_link_libraries(stereo_calibration_visualize_app
         PRIVATE
             newnewhand_calibration
+    )
+
+    add_executable(stereo_fused_hand_pose_demo
+        apps/stereo_fused_hand_pose_demo.cpp
+    )
+    target_link_libraries(stereo_fused_hand_pose_demo
+        PRIVATE
+            newnewhand_fusion
+    )
+    set_target_properties(stereo_fused_hand_pose_demo PROPERTIES
+        BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib;${MVS_ROOT}/lib/64"
     )
 endif()

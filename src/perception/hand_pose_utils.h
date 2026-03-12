@@ -33,6 +33,8 @@ void PerspectiveProjection(
     float* points_2d);
 
 void RotationMatrixToRotationVector(const float* rotation_matrix, float* rotation_vector);
+cv::Vec3f RotationMatrixToRotationVector(const cv::Matx33f& rotation_matrix);
+cv::Matx33f RotationVectorToRotationMatrix(const cv::Vec3f& rotation_vector);
 
 cv::Mat AntiAliasBlur(const cv::Mat& image, float bbox_size, int patch_size);
 

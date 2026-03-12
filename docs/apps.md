@@ -129,6 +129,19 @@ Loads a calibration YAML and renders a third-person scene with `cam0`, `cam1`, a
   --draw_ids
 ```
 
+## Stereo fusion
+
+### `stereo_fused_hand_pose_demo`
+
+Runs stereo capture, per-view hand pose estimation, and fuses the hand pose into the `cam0` coordinate frame using the stereo calibration.
+
+```bash
+./build/stereo_fused_hand_pose_demo \
+  --calibration resources/stereo_calibration.yaml \
+  --gpu \
+  --output_dir results/stereo_fused_hand_pose
+```
+
 Notes:
 
 - `--calibration <yaml>` is required

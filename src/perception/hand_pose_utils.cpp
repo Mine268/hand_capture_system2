@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 
 namespace newnewhand::hand_pose_utils {
@@ -143,6 +144,18 @@ void RotationMatrixToRotationVector(const float* rotation_matrix, float* rotatio
     rotation_vector[0] = scale * (r21 - r12);
     rotation_vector[1] = scale * (r02 - r20);
     rotation_vector[2] = scale * (r10 - r01);
+}
+
+cv::Vec3f RotationMatrixToRotationVector(const cv::Matx33f& rotation_matrix) {
+    cv::Vec3f rotation_vector;
+    RotationMatrixToRotationVector(rotation_matrix.val, rotation_vector.val);
+    return rotation_vector;
+}
+
+cv::Matx33f RotationVectorToRotationMatrix(const cv::Vec3f& rotation_vector) {
+    cv::Mat rotation_matrix;
+    cv::Rodrigues(cv::Vec3d(rotation_vector), rotation_matrix);
+    return cv::Matx33f(rotation_matrix);
 }
 
 cv::Mat AntiAliasBlur(const cv::Mat& image, float bbox_size, int patch_size) {
