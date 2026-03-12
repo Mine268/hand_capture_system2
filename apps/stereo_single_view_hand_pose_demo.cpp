@@ -19,7 +19,9 @@ namespace {
 constexpr const char* kDefaultDetectorModelPath =
     "/home/renkaiwen/src/wilor_deploy/wilor_deploy/WiLoR-mini/wilor_mini/pretrained_models/detector.onnx";
 constexpr const char* kDefaultWilorModelPath =
-    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/onnx_model/wilor_safe_rotmat_opset16.onnx";
+    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/onnx_model/wilor_backbone_opset16.onnx";
+constexpr const char* kDefaultManoModelPath =
+    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/onnx_model/mano_cpu_opset16.onnx";
 
 struct DemoOptions {
     std::string output_dir = "results/stereo_single_view_pose";
@@ -29,6 +31,7 @@ struct DemoOptions {
     std::string cam1_serial;
     std::string detector_model_path = kDefaultDetectorModelPath;
     std::string wilor_model_path = kDefaultWilorModelPath;
+    std::string mano_model_path = kDefaultManoModelPath;
     float exposure_us = 10000.0f;
     float gain = -1.0f;
     unsigned int fps = 10;
@@ -65,6 +68,8 @@ DemoOptions ParseArgs(int argc, char** argv) {
             options.detector_model_path = require_value(arg);
         } else if (arg == "--wilor_model") {
             options.wilor_model_path = require_value(arg);
+        } else if (arg == "--mano_model") {
+            options.mano_model_path = require_value(arg);
         } else if (arg == "--exposure_us") {
             options.exposure_us = std::stof(require_value(arg));
         } else if (arg == "--gain") {
@@ -99,6 +104,7 @@ DemoOptions ParseArgs(int argc, char** argv) {
                 << "  --cam1_serial <serial>    default: auto select\n"
                 << "  --detector_model <path>   default: " << kDefaultDetectorModelPath << "\n"
                 << "  --wilor_model <path>      default: " << kDefaultWilorModelPath << "\n"
+                << "  --mano_model <path>       default: " << kDefaultManoModelPath << "\n"
                 << "  --exposure_us <float>     default: 10000\n"
                 << "  --gain <float>            default: -1 (auto)\n"
                 << "  --fps <int>               default: 10\n"
@@ -125,6 +131,7 @@ void PrintEffectiveConfig(const DemoOptions& options) {
     std::cout << "  cam1_serial=" << (options.cam1_serial.empty() ? "<auto>" : options.cam1_serial) << "\n";
     std::cout << "  detector_model=" << options.detector_model_path << "\n";
     std::cout << "  wilor_model=" << options.wilor_model_path << "\n";
+    std::cout << "  mano_model=" << options.mano_model_path << "\n";
     std::cout << "  exposure_us=" << options.exposure_us << "\n";
     std::cout << "  gain=" << options.gain << "\n";
     std::cout << "  fps=" << options.fps << "\n";
@@ -217,6 +224,7 @@ int main(int argc, char** argv) {
         config.capture_config.camera_settings.gain = options.gain;
         config.pose_config.detector_model_path = options.detector_model_path;
         config.pose_config.wilor_model_path = options.wilor_model_path;
+        config.pose_config.mano_model_path = options.mano_model_path;
         config.pose_config.debug_dump_dir = options.debug_dir;
         config.pose_config.ort_profile_prefix = options.ort_profile_prefix;
         config.pose_config.use_gpu = options.use_gpu;

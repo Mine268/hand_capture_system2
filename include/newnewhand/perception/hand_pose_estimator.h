@@ -32,6 +32,7 @@ struct HandPoseResult {
 struct HandPoseEstimatorConfig {
     std::string detector_model_path;
     std::string wilor_model_path;
+    std::string mano_model_path;
     std::string debug_dump_dir;
     std::string ort_profile_prefix;
     bool use_gpu = true;

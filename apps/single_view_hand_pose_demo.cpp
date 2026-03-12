@@ -11,10 +11,14 @@
 
 namespace {
 
+constexpr const char* kDefaultManoModelPath =
+    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/onnx_model/mano_cpu_opset16.onnx";
+
 struct DemoOptions {
     std::string image_path;
     std::string detector_model_path;
     std::string wilor_model_path;
+    std::string mano_model_path = kDefaultManoModelPath;
     std::string output_path = "output.png";
     bool use_gpu = true;
 };
@@ -37,6 +41,8 @@ DemoOptions ParseArgs(int argc, char** argv) {
             options.detector_model_path = require_value(arg);
         } else if (arg == "--wilor_model") {
             options.wilor_model_path = require_value(arg);
+        } else if (arg == "--mano_model") {
+            options.mano_model_path = require_value(arg);
         } else if (arg == "--output") {
             options.output_path = require_value(arg);
         } else if (arg == "--gpu") {
@@ -47,6 +53,7 @@ DemoOptions ParseArgs(int argc, char** argv) {
             std::cout
                 << "Usage: single_view_hand_pose_demo --image <path> --detector_model <path> --wilor_model <path> [options]\n"
                 << "  --output <path>   default: output.png\n"
+                << "  --mano_model <path> default: " << kDefaultManoModelPath << "\n"
                 << "  --gpu             default: enabled\n"
                 << "  --cpu             force CPU for WiLoR\n";
             std::exit(0);
@@ -76,6 +83,7 @@ int main(int argc, char** argv) {
         newnewhand::HandPoseEstimatorConfig config;
         config.detector_model_path = options.detector_model_path;
         config.wilor_model_path = options.wilor_model_path;
+        config.mano_model_path = options.mano_model_path;
         config.use_gpu = options.use_gpu;
 
         const auto load_start = std::chrono::high_resolution_clock::now();
