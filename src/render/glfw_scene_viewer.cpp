@@ -31,6 +31,47 @@ void DrawLine(const std::array<float, 3>& a, const std::array<float, 3>& b, cons
     glEnd();
 }
 
+void DrawAxisLabelX(const std::array<float, 3>& origin, float scale, const std::array<float, 3>& color) {
+    DrawLine(
+        {origin[0] - scale, origin[1] - scale, origin[2]},
+        {origin[0] + scale, origin[1] + scale, origin[2]},
+        color);
+    DrawLine(
+        {origin[0] - scale, origin[1] + scale, origin[2]},
+        {origin[0] + scale, origin[1] - scale, origin[2]},
+        color);
+}
+
+void DrawAxisLabelY(const std::array<float, 3>& origin, float scale, const std::array<float, 3>& color) {
+    DrawLine(
+        {origin[0] - scale, origin[1] + scale, origin[2]},
+        {origin[0], origin[1], origin[2]},
+        color);
+    DrawLine(
+        {origin[0] + scale, origin[1] + scale, origin[2]},
+        {origin[0], origin[1], origin[2]},
+        color);
+    DrawLine(
+        {origin[0], origin[1], origin[2]},
+        {origin[0], origin[1] - scale * 1.4f, origin[2]},
+        color);
+}
+
+void DrawAxisLabelZ(const std::array<float, 3>& origin, float scale, const std::array<float, 3>& color) {
+    DrawLine(
+        {origin[0] - scale, origin[1] + scale, origin[2]},
+        {origin[0] + scale, origin[1] + scale, origin[2]},
+        color);
+    DrawLine(
+        {origin[0] + scale, origin[1] + scale, origin[2]},
+        {origin[0] - scale, origin[1] - scale, origin[2]},
+        color);
+    DrawLine(
+        {origin[0] - scale, origin[1] - scale, origin[2]},
+        {origin[0] + scale, origin[1] - scale, origin[2]},
+        color);
+}
+
 std::array<float, 3> Cross(const std::array<float, 3>& a, const std::array<float, 3>& b) {
     return {
         a[1] * b[2] - a[2] * b[1],
@@ -251,6 +292,12 @@ void GlfwSceneViewer::DrawAxes(float axis_length) const {
     DrawLine({0.0f, 0.0f, 0.0f}, {axis_length, 0.0f, 0.0f}, {1.0f, 0.15f, 0.15f});
     DrawLine({0.0f, 0.0f, 0.0f}, {0.0f, axis_length, 0.0f}, {0.15f, 1.0f, 0.15f});
     DrawLine({0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, axis_length}, {0.15f, 0.45f, 1.0f});
+
+    const float label_scale = axis_length * 0.12f;
+    DrawAxisLabelX({axis_length * 1.15f, 0.0f, 0.0f}, label_scale, {1.0f, 0.15f, 0.15f});
+    DrawAxisLabelY({0.0f, axis_length * 1.15f, 0.0f}, label_scale, {0.15f, 1.0f, 0.15f});
+    DrawAxisLabelZ({0.0f, 0.0f, axis_length * 1.15f}, label_scale, {0.15f, 0.45f, 1.0f});
+
     glLineWidth(1.0f);
     glEnable(GL_LIGHTING);
 }
@@ -329,7 +376,8 @@ void GlfwSceneViewer::DrawHands(const StereoFusedHandPoseFrame& frame) const {
         const GLfloat shininess[] = {32.0f};
         glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, specular);
         glMaterialfv(GL_FRONT_AND_BACK, GL_SHININESS, shininess);
-        glColor4f(base[0], base[1], base[2], 0.92f);
+        glDisable(GL_BLEND);
+        glColor4f(base[0], base[1], base[2], 1.0f);
         glBegin(GL_TRIANGLES);
         for (const auto& face : mano_faces_) {
             for (int corner = 0; corner < 3; ++corner) {
@@ -339,6 +387,7 @@ void GlfwSceneViewer::DrawHands(const StereoFusedHandPoseFrame& frame) const {
             }
         }
         glEnd();
+        glEnable(GL_BLEND);
 
         if (config_.draw_wireframe) {
             glDisable(GL_LIGHTING);
