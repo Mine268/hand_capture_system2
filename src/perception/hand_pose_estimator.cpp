@@ -58,7 +58,7 @@ struct HandPoseEstimator::Impl {
     explicit Impl(HandPoseEstimatorConfig config_in)
         : config(std::move(config_in)),
           detector(config.detector_model_path),
-          wilor(config.wilor_model_path, config.use_gpu) {
+          wilor(config.wilor_model_path, config.use_gpu, config.ort_profile_prefix) {
         if (config.patch_size != 256) {
             throw std::invalid_argument("current WiLoR ONNX pipeline requires patch_size == 256");
         }

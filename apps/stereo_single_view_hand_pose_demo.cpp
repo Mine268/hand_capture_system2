@@ -24,6 +24,7 @@ constexpr const char* kDefaultWilorModelPath =
 struct DemoOptions {
     std::string output_dir = "results/stereo_single_view_pose";
     std::string debug_dir = "debug/wilor_failures";
+    std::string ort_profile_prefix;
     std::string cam0_serial;
     std::string cam1_serial;
     std::string detector_model_path = kDefaultDetectorModelPath;
@@ -54,6 +55,8 @@ DemoOptions ParseArgs(int argc, char** argv) {
             options.output_dir = require_value(arg);
         } else if (arg == "--debug_dir") {
             options.debug_dir = require_value(arg);
+        } else if (arg == "--ort_profile") {
+            options.ort_profile_prefix = require_value(arg);
         } else if (arg == "--cam0_serial") {
             options.cam0_serial = require_value(arg);
         } else if (arg == "--cam1_serial") {
@@ -91,6 +94,7 @@ DemoOptions ParseArgs(int argc, char** argv) {
                 << "Usage: stereo_single_view_hand_pose_demo [options]\n"
                 << "  --output_dir <dir>        default: results/stereo_single_view_pose\n"
                 << "  --debug_dir <dir>         default: debug/wilor_failures\n"
+                << "  --ort_profile <prefix>    default: disabled\n"
                 << "  --cam0_serial <serial>    default: auto select\n"
                 << "  --cam1_serial <serial>    default: auto select\n"
                 << "  --detector_model <path>   default: " << kDefaultDetectorModelPath << "\n"
@@ -116,6 +120,7 @@ void PrintEffectiveConfig(const DemoOptions& options) {
     std::cout << "Stereo single-view pose config:\n";
     std::cout << "  output_dir=" << options.output_dir << "\n";
     std::cout << "  debug_dir=" << options.debug_dir << "\n";
+    std::cout << "  ort_profile_prefix=" << (options.ort_profile_prefix.empty() ? "<disabled>" : options.ort_profile_prefix) << "\n";
     std::cout << "  cam0_serial=" << (options.cam0_serial.empty() ? "<auto>" : options.cam0_serial) << "\n";
     std::cout << "  cam1_serial=" << (options.cam1_serial.empty() ? "<auto>" : options.cam1_serial) << "\n";
     std::cout << "  detector_model=" << options.detector_model_path << "\n";
@@ -213,6 +218,7 @@ int main(int argc, char** argv) {
         config.pose_config.detector_model_path = options.detector_model_path;
         config.pose_config.wilor_model_path = options.wilor_model_path;
         config.pose_config.debug_dump_dir = options.debug_dir;
+        config.pose_config.ort_profile_prefix = options.ort_profile_prefix;
         config.pose_config.use_gpu = options.use_gpu;
 
         newnewhand::StereoSingleViewHandPosePipeline pipeline(config);

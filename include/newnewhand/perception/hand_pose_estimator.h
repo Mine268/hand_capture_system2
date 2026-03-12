@@ -33,6 +33,7 @@ struct HandPoseEstimatorConfig {
     std::string detector_model_path;
     std::string wilor_model_path;
     std::string debug_dump_dir;
+    std::string ort_profile_prefix;
     bool use_gpu = true;
     float detection_confidence_threshold = 0.3f;
     float detection_nms_threshold = 0.45f;

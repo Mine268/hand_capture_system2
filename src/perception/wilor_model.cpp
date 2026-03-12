@@ -1,12 +1,13 @@
 #include "wilor_model.h"
 
 #include <array>
+#include <iostream>
 #include <stdexcept>
 #include <vector>
 
 namespace newnewhand {
 
-WilorModel::WilorModel(const std::string& model_path, bool use_gpu)
+WilorModel::WilorModel(const std::string& model_path, bool use_gpu, const std::string& profile_prefix)
     : env_(ORT_LOGGING_LEVEL_WARNING, "newnewhand_wilor"),
       session_(nullptr) {
     if (model_path.empty()) {
@@ -15,6 +16,10 @@ WilorModel::WilorModel(const std::string& model_path, bool use_gpu)
 
     Ort::SessionOptions options;
     options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    if (!profile_prefix.empty()) {
+        options.EnableProfiling(profile_prefix.c_str());
+        profiling_enabled_ = true;
+    }
 
     if (use_gpu) {
         OrtCUDAProviderOptions cuda_options;
@@ -37,6 +42,19 @@ WilorModel::WilorModel(const std::string& model_path, bool use_gpu)
     for (std::size_t index = 0; index < output_count; ++index) {
         auto name = session_.GetOutputNameAllocated(index, allocator);
         output_names_.push_back(name.get());
+    }
+}
+
+WilorModel::~WilorModel() {
+    if (profiling_enabled_) {
+        Ort::AllocatorWithDefaultOptions allocator;
+        try {
+            auto profile_path = session_.EndProfilingAllocated(allocator);
+            if (profile_path) {
+                std::cerr << "ORT profile saved: " << profile_path.get() << "\n";
+            }
+        } catch (...) {
+        }
     }
 }
 

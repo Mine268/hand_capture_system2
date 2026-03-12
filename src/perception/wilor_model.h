@@ -22,7 +22,8 @@ struct WilorOutput {
 
 class WilorModel {
 public:
-    WilorModel(const std::string& model_path, bool use_gpu);
+    WilorModel(const std::string& model_path, bool use_gpu, const std::string& profile_prefix = {});
+    ~WilorModel();
 
     WilorOutput Infer(const std::vector<cv::Mat>& patches);
 
@@ -31,6 +32,7 @@ private:
     Ort::Session session_;
     std::vector<std::string> input_names_;
     std::vector<std::string> output_names_;
+    bool profiling_enabled_ = false;
 };
 
 }  // namespace newnewhand
