@@ -66,6 +66,7 @@ public:
 
     StereoCalibrationResult Calibrate(const std::vector<CalibrationImagePair>& image_pairs) const;
     void SaveResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path) const;
+    static void SaveLoadedResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path);
     static StereoCalibrationResult LoadResult(const std::filesystem::path& input_path);
 
     static std::vector<CalibrationImagePair> CollectImagePairs(

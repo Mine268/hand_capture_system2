@@ -36,6 +36,9 @@ struct HandPoseEstimatorConfig {
     std::string debug_dump_dir;
     std::string ort_profile_prefix;
     bool use_gpu = true;
+    bool enable_beta_ema = true;
+    float beta_ema_alpha = 0.08f;
+    int temporal_reset_frames = 30;
     float detection_confidence_threshold = 0.3f;
     float detection_nms_threshold = 0.45f;
     float focal_length = 5000.0f;

@@ -52,9 +52,28 @@ StereoHandFuser::StereoHandFuser(StereoHandFuserConfig config)
     if (!config_.calibration.success) {
         throw std::invalid_argument("stereo calibration must be loaded before fusion");
     }
+
+    for (auto& state : root_filters_) {
+        state.filter.init(6, 3, 0, CV_32F);
+        state.filter.transitionMatrix = (cv::Mat_<float>(6, 6) <<
+            1, 0, 0, 1, 0, 0,
+            0, 1, 0, 0, 1, 0,
+            0, 0, 1, 0, 0, 1,
+            0, 0, 0, 1, 0, 0,
+            0, 0, 0, 0, 1, 0,
+            0, 0, 0, 0, 0, 1);
+        state.filter.measurementMatrix = (cv::Mat_<float>(3, 6) <<
+            1, 0, 0, 0, 0, 0,
+            0, 1, 0, 0, 0, 0,
+            0, 0, 1, 0, 0, 0);
+        cv::setIdentity(state.filter.processNoiseCov, cv::Scalar::all(config_.root_process_noise));
+        cv::setIdentity(state.filter.measurementNoiseCov, cv::Scalar::all(config_.root_measurement_noise));
+        cv::setIdentity(state.filter.errorCovPost, cv::Scalar::all(config_.root_initial_error));
+        cv::setIdentity(state.filter.errorCovPre, cv::Scalar::all(config_.root_initial_error));
+    }
 }
 
-StereoFusedHandPoseFrame StereoHandFuser::Fuse(const StereoSingleViewPoseFrame& stereo_frame) const {
+StereoFusedHandPoseFrame StereoHandFuser::Fuse(const StereoSingleViewPoseFrame& stereo_frame) {
     StereoFusedHandPoseFrame fused_frame;
     fused_frame.capture_index = stereo_frame.capture_index;
     fused_frame.trigger_timestamp = stereo_frame.trigger_timestamp;
@@ -75,11 +94,6 @@ StereoFusedHandPoseFrame StereoHandFuser::Fuse(const StereoSingleViewPoseFrame& 
         fused_frame.hands.push_back(std::move(fused_hand));
     }
 
-    std::vector<HandPoseResult> fused_results;
-    fused_results.reserve(fused_frame.hands.size());
-    for (const auto& hand : fused_frame.hands) {
-        fused_results.push_back(hand.pose_cam0);
-    }
     return fused_frame;
 }
 
@@ -116,7 +130,7 @@ void StereoHandFuser::SaveFrame(const StereoFusedHandPoseFrame& frame, const std
     fs << "]";
 }
 
-FusedHandPose StereoHandFuser::FuseHandByHandedness(const StereoSingleViewPoseFrame& frame, bool is_right) const {
+FusedHandPose StereoHandFuser::FuseHandByHandedness(const StereoSingleViewPoseFrame& frame, bool is_right) {
     const HandPoseResult* view0 = FindByHandedness(frame.views[0].hand_poses, is_right);
     const HandPoseResult* view1 = FindByHandedness(frame.views[1].hand_poses, is_right);
 
@@ -140,6 +154,7 @@ FusedHandPose StereoHandFuser::FuseHandByHandedness(const StereoSingleViewPoseFr
     }
 
     if (!view0 || !view1) {
+        MarkMissing(is_right);
         if (config_.verbose_logging && config_.require_both_views) {
             std::cerr
                 << "[fusion] skip handedness=" << (is_right ? "right" : "left")
@@ -149,9 +164,10 @@ FusedHandPose StereoHandFuser::FuseHandByHandedness(const StereoSingleViewPoseFr
     }
 
     fused.pose_cam0 = *view0;
-    fused.root_joint_cam0 = TriangulateRoot(
+    const cv::Vec3f triangulated_root = TriangulateRoot(
         cv::Point2f(view0->keypoints_2d[0][0], view0->keypoints_2d[0][1]),
         cv::Point2f(view1->keypoints_2d[0][0], view1->keypoints_2d[0][1]));
+    fused.root_joint_cam0 = FilterRoot(triangulated_root, is_right);
     fused.pose_cam0.camera_translation[0] = fused.root_joint_cam0[0] - fused.pose_cam0.keypoints_3d[0][0];
     fused.pose_cam0.camera_translation[1] = fused.root_joint_cam0[1] - fused.pose_cam0.keypoints_3d[0][1];
     fused.pose_cam0.camera_translation[2] = fused.root_joint_cam0[2] - fused.pose_cam0.keypoints_3d[0][2];
@@ -161,7 +177,11 @@ FusedHandPose StereoHandFuser::FuseHandByHandedness(const StereoSingleViewPoseFr
     if (config_.verbose_logging) {
         std::cerr
             << "[fusion] handedness=" << (is_right ? "right" : "left")
-            << " root_cam0=("
+            << " triangulated_root=("
+            << triangulated_root[0] << ", "
+            << triangulated_root[1] << ", "
+            << triangulated_root[2] << ") "
+            << "filtered_root=("
             << fused.root_joint_cam0[0] << ", "
             << fused.root_joint_cam0[1] << ", "
             << fused.root_joint_cam0[2] << ") "
@@ -262,5 +282,41 @@ void StereoHandFuser::ProjectToView0(HandPoseResult& pose) const {
     pose.detection.bbox[1] = bbox.y;
     pose.detection.bbox[2] = bbox.x + bbox.width;
     pose.detection.bbox[3] = bbox.y + bbox.height;
+}
+
+cv::Vec3f StereoHandFuser::FilterRoot(cv::Vec3f root_joint_cam0, bool is_right) {
+    if (!config_.enable_root_kalman) {
+        return root_joint_cam0;
+    }
+
+    auto& state = root_filters_[is_right ? 1 : 0];
+    state.missing_frames = 0;
+
+    if (!state.initialized) {
+        state.filter.statePost.at<float>(0) = root_joint_cam0[0];
+        state.filter.statePost.at<float>(1) = root_joint_cam0[1];
+        state.filter.statePost.at<float>(2) = root_joint_cam0[2];
+        state.filter.statePost.at<float>(3) = 0.0f;
+        state.filter.statePost.at<float>(4) = 0.0f;
+        state.filter.statePost.at<float>(5) = 0.0f;
+        state.initialized = true;
+        return root_joint_cam0;
+    }
+
+    state.filter.predict();
+    cv::Mat measurement = (cv::Mat_<float>(3, 1) << root_joint_cam0[0], root_joint_cam0[1], root_joint_cam0[2]);
+    const cv::Mat corrected = state.filter.correct(measurement);
+    return cv::Vec3f(
+        corrected.at<float>(0),
+        corrected.at<float>(1),
+        corrected.at<float>(2));
+}
+
+void StereoHandFuser::MarkMissing(bool is_right) {
+    auto& state = root_filters_[is_right ? 1 : 0];
+    state.missing_frames += 1;
+    if (state.missing_frames > config_.temporal_reset_frames) {
+        state.initialized = false;
+    }
 }
 }  // namespace newnewhand

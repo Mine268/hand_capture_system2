@@ -55,6 +55,12 @@ void DumpInferenceFailure(
 }  // namespace
 
 struct HandPoseEstimator::Impl {
+    struct TemporalHandState {
+        bool beta_initialized = false;
+        int missing_frames = 0;
+        std::array<float, 10> beta_ema = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    };
+
     explicit Impl(HandPoseEstimatorConfig config_in)
         : config(std::move(config_in)),
           detector(config.detector_model_path, config.use_gpu),
@@ -71,6 +77,7 @@ struct HandPoseEstimator::Impl {
     HandPoseEstimatorConfig config;
     YoloDetector detector;
     WilorModel wilor;
+    std::array<TemporalHandState, 2> temporal_states;
 };
 
 HandPoseEstimator::HandPoseEstimator(HandPoseEstimatorConfig config)
@@ -142,6 +149,12 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
     }
 
     if (detections.empty()) {
+        for (auto& state : impl_->temporal_states) {
+            state.missing_frames += 1;
+            if (state.missing_frames > impl_->config.temporal_reset_frames) {
+                state.beta_initialized = false;
+            }
+        }
         return {};
     }
 
@@ -209,6 +222,26 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
             inference_errors.push_back(ex.what());
             continue;
         }
+
+        const int handedness_index = hand_crop.detection.is_right ? 1 : 0;
+        auto& temporal_state = impl_->temporal_states[handedness_index];
+        temporal_state.missing_frames = 0;
+        if (impl_->config.enable_beta_ema) {
+            if (!temporal_state.beta_initialized) {
+                std::copy_n(wilor_output.betas.begin(), 10, temporal_state.beta_ema.begin());
+                temporal_state.beta_initialized = true;
+            } else {
+                const float alpha = std::clamp(impl_->config.beta_ema_alpha, 0.0f, 1.0f);
+                for (int beta_index = 0; beta_index < 10; ++beta_index) {
+                    temporal_state.beta_ema[beta_index] =
+                        (1.0f - alpha) * temporal_state.beta_ema[beta_index]
+                        + alpha * wilor_output.betas[beta_index];
+                }
+            }
+            std::copy(temporal_state.beta_ema.begin(), temporal_state.beta_ema.end(), wilor_output.betas.begin());
+        }
+
+        impl_->wilor.FillCpuManoGeometry(wilor_output);
 
         HandPoseResult result;
         result.detection = hand_crop.detection;
@@ -300,6 +333,17 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
         std::memcpy(result.keypoints_2d, flat_keypoints_2d, sizeof(float) * 21 * 2);
 
         results.push_back(result);
+    }
+
+    for (int handedness_index = 0; handedness_index < 2; ++handedness_index) {
+        const bool present = (handedness_index == 0 && has_best[0]) || (handedness_index == 1 && has_best[1]);
+        if (!present) {
+            auto& temporal_state = impl_->temporal_states[handedness_index];
+            temporal_state.missing_frames += 1;
+            if (temporal_state.missing_frames > impl_->config.temporal_reset_frames) {
+                temporal_state.beta_initialized = false;
+            }
+        }
     }
 
     if (results.empty() && !inference_errors.empty()) {

@@ -40,6 +40,54 @@ cv::Mat EnsureGrayscale(const cv::Mat& image) {
     return gray;
 }
 
+void WriteCalibrationResultFile(
+    const StereoCalibrationResult& result,
+    const std::filesystem::path& output_path) {
+    if (!result.success) {
+        throw std::invalid_argument("cannot save an unsuccessful calibration result");
+    }
+
+    if (!output_path.parent_path().empty()) {
+        std::filesystem::create_directories(output_path.parent_path());
+    }
+    cv::FileStorage fs(output_path.string(), cv::FileStorage::WRITE);
+    if (!fs.isOpened()) {
+        throw std::runtime_error("failed to open calibration output file: " + output_path.string());
+    }
+
+    fs << "image_width" << result.image_size.width;
+    fs << "image_height" << result.image_size.height;
+    fs << "checkerboard_inner_corners_cols" << result.checkerboard.inner_corners_cols;
+    fs << "checkerboard_inner_corners_rows" << result.checkerboard.inner_corners_rows;
+    fs << "checkerboard_square_size" << result.checkerboard.square_size;
+    fs << "num_valid_pairs" << static_cast<int>(result.observations.size());
+    fs << "left_rms" << result.left_rms;
+    fs << "right_rms" << result.right_rms;
+    fs << "stereo_rms" << result.stereo_rms;
+    fs << "left_camera_matrix" << result.left_camera_matrix;
+    fs << "right_camera_matrix" << result.right_camera_matrix;
+    fs << "left_dist_coeffs" << result.left_dist_coeffs;
+    fs << "right_dist_coeffs" << result.right_dist_coeffs;
+    fs << "rotation" << result.rotation;
+    fs << "translation" << result.translation;
+    fs << "essential" << result.essential;
+    fs << "fundamental" << result.fundamental;
+    fs << "rectification_left" << result.rectification_left;
+    fs << "rectification_right" << result.rectification_right;
+    fs << "projection_left" << result.projection_left;
+    fs << "projection_right" << result.projection_right;
+    fs << "disparity_to_depth" << result.disparity_to_depth;
+
+    fs << "valid_pairs" << "[";
+    for (const auto& observation : result.observations) {
+        fs << "{";
+        fs << "left_path" << observation.image_pair.left_path.string();
+        fs << "right_path" << observation.image_pair.right_path.string();
+        fs << "}";
+    }
+    fs << "]";
+}
+
 }  // namespace
 
 StereoCalibrator::StereoCalibrator(StereoCalibrationConfig config)
@@ -168,49 +216,13 @@ StereoCalibrationResult StereoCalibrator::Calibrate(const std::vector<Calibratio
 }
 
 void StereoCalibrator::SaveResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path) const {
-    if (!result.success) {
-        throw std::invalid_argument("cannot save an unsuccessful calibration result");
-    }
+    StereoCalibrationResult result_to_save = result;
+    result_to_save.checkerboard = config_.checkerboard;
+    WriteCalibrationResultFile(result_to_save, output_path);
+}
 
-    if (!output_path.parent_path().empty()) {
-        std::filesystem::create_directories(output_path.parent_path());
-    }
-    cv::FileStorage fs(output_path.string(), cv::FileStorage::WRITE);
-    if (!fs.isOpened()) {
-        throw std::runtime_error("failed to open calibration output file: " + output_path.string());
-    }
-
-    fs << "image_width" << result.image_size.width;
-    fs << "image_height" << result.image_size.height;
-    fs << "checkerboard_inner_corners_cols" << config_.checkerboard.inner_corners_cols;
-    fs << "checkerboard_inner_corners_rows" << config_.checkerboard.inner_corners_rows;
-    fs << "checkerboard_square_size" << config_.checkerboard.square_size;
-    fs << "num_valid_pairs" << static_cast<int>(result.observations.size());
-    fs << "left_rms" << result.left_rms;
-    fs << "right_rms" << result.right_rms;
-    fs << "stereo_rms" << result.stereo_rms;
-    fs << "left_camera_matrix" << result.left_camera_matrix;
-    fs << "right_camera_matrix" << result.right_camera_matrix;
-    fs << "left_dist_coeffs" << result.left_dist_coeffs;
-    fs << "right_dist_coeffs" << result.right_dist_coeffs;
-    fs << "rotation" << result.rotation;
-    fs << "translation" << result.translation;
-    fs << "essential" << result.essential;
-    fs << "fundamental" << result.fundamental;
-    fs << "rectification_left" << result.rectification_left;
-    fs << "rectification_right" << result.rectification_right;
-    fs << "projection_left" << result.projection_left;
-    fs << "projection_right" << result.projection_right;
-    fs << "disparity_to_depth" << result.disparity_to_depth;
-
-    fs << "valid_pairs" << "[";
-    for (const auto& observation : result.observations) {
-        fs << "{";
-        fs << "left_path" << observation.image_pair.left_path.string();
-        fs << "right_path" << observation.image_pair.right_path.string();
-        fs << "}";
-    }
-    fs << "]";
+void StereoCalibrator::SaveLoadedResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path) {
+    WriteCalibrationResultFile(result, output_path);
 }
 
 StereoCalibrationResult StereoCalibrator::LoadResult(const std::filesystem::path& input_path) {

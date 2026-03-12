@@ -133,12 +133,14 @@ Runs stereo capture, per-view hand pose estimation, and fuses the hand pose into
 ./build/stereo_fused_hand_pose_demo \
   --calibration resources/stereo_calibration.yaml \
   --gpu \
+  --offline_dump_dir offline_dump/session_001 \
   --output_dir results/stereo_fused_hand_pose
 ```
 
 Notes:
 
 - `--calibration <yaml>` is required
+- `--offline_dump_dir <dir>` optionally exports raw stereo views, overlays, calibration, mono results and fused results
 - OpenCV windows still show the per-view overlay images
 - a GLFW + OpenGL window renders the fused hand mesh in the `cam0` coordinate frame
 - the OpenGL scene currently shows:

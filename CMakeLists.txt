@@ -124,6 +124,21 @@ target_link_libraries(newnewhand_fusion
         ${OpenCV_LIBS}
 )
 
+add_library(newnewhand_io STATIC
+    src/io/offline_sequence_writer.cpp
+)
+target_include_directories(newnewhand_io
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(newnewhand_io
+    PUBLIC
+        newnewhand_fusion
+        newnewhand_pipeline
+        newnewhand_calibration
+        ${OpenCV_LIBS}
+)
+
 add_library(newnewhand_calibration STATIC
     src/calibration/stereo_calibrator.cpp
     src/calibration/stereo_calibration_visualizer.cpp
@@ -212,6 +227,7 @@ if(BUILD_DEMOS)
         PRIVATE
             newnewhand_fusion
             newnewhand_render_glfw
+            newnewhand_io
     )
     set_target_properties(stereo_fused_hand_pose_demo PROPERTIES
         BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib;${MVS_ROOT}/lib/64"

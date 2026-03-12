@@ -29,12 +29,36 @@ The demo saves per-frame YAML files containing:
 - fused vertices in `cam0`
 - MANO parameters
 
+## Optional offline export
+
+Use `--offline_dump_dir <dir>` to export a frame-by-frame offline package.
+
+Current layout:
+
+- `calibration/stereo_calibration.yaml`
+- `manifest.yaml`
+- `images/cam0/*.png`
+- `images/cam1/*.png`
+- `overlays/cam0/*.png`
+- `overlays/cam1/*.png`
+- `frames/*.yaml`
+
+Each frame YAML contains:
+
+- camera frame metadata for `cam0` and `cam1`
+- per-view single-view hand results
+- fused hand results in the `cam0` frame
+- mesh vertices
+- root joint position
+- MANO rotations and shape parameters
+
 ## Demo
 
 ```bash
 ./build/stereo_fused_hand_pose_demo \
   --calibration resources/stereo_calibration.yaml \
   --gpu \
+  --offline_dump_dir offline_dump/session_001 \
   --output_dir results/stereo_fused_hand_pose
 ```
 

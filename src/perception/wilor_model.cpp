@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "hand_pose_utils.h"
+
 namespace newnewhand {
 
 WilorModel::WilorModel(
@@ -154,34 +156,68 @@ WilorOutput WilorModel::Infer(const std::vector<cv::Mat>& patches) {
         if (network_outputs_vertices_) {
             RunEmbeddedManoNetwork(output, network_output_names, output_tensors);
         } else {
-            const float* global_orient_rotmat = nullptr;
-            const float* hand_pose_rotmat = nullptr;
-            const float* betas = nullptr;
-
             for (std::size_t output_index = 0; output_index < network_output_names_.size(); ++output_index) {
                 const float* data = output_tensors[output_index].GetTensorData<float>();
                 const std::size_t element_count =
                     output_tensors[output_index].GetTensorTypeAndShapeInfo().GetElementCount();
                 const std::string& name = network_output_names_[output_index];
                 AppendOutputBuffer(output, name, data, element_count);
-
-                if (name == "global_orient_rotmat") {
-                    global_orient_rotmat = data;
-                } else if (name == "hand_pose_rotmat") {
-                    hand_pose_rotmat = data;
-                } else if (name == "betas") {
-                    betas = data;
-                }
             }
+        }
+    }
 
-            if (!global_orient_rotmat || !hand_pose_rotmat || !betas) {
-                throw std::runtime_error("split WiLoR model did not return required MANO parameter tensors");
+    if (output.global_orient_rotmat.empty() && !output.global_orient.empty()) {
+        output.global_orient_rotmat.resize(static_cast<std::size_t>(output.batch_size) * 9);
+        for (int batch_index = 0; batch_index < output.batch_size; ++batch_index) {
+            const cv::Vec3f rotvec(
+                output.global_orient[batch_index * 3 + 0],
+                output.global_orient[batch_index * 3 + 1],
+                output.global_orient[batch_index * 3 + 2]);
+            const cv::Matx33f rotmat = hand_pose_utils::RotationVectorToRotationMatrix(rotvec);
+            std::copy(rotmat.val, rotmat.val + 9, output.global_orient_rotmat.begin() + batch_index * 9);
+        }
+    }
+    if (output.hand_pose_rotmat.empty() && !output.hand_pose.empty()) {
+        output.hand_pose_rotmat.resize(static_cast<std::size_t>(output.batch_size) * 15 * 9);
+        for (int batch_index = 0; batch_index < output.batch_size; ++batch_index) {
+            for (int pose_index = 0; pose_index < 15; ++pose_index) {
+                const float* src = output.hand_pose.data() + batch_index * 45 + pose_index * 3;
+                const cv::Vec3f rotvec(src[0], src[1], src[2]);
+                const cv::Matx33f rotmat = hand_pose_utils::RotationVectorToRotationMatrix(rotvec);
+                std::copy(
+                    rotmat.val,
+                    rotmat.val + 9,
+                    output.hand_pose_rotmat.begin() + batch_index * 135 + pose_index * 9);
             }
-            RunCpuMano(output, global_orient_rotmat, hand_pose_rotmat, betas);
         }
     }
 
     return output;
+}
+
+void WilorModel::FillCpuManoGeometry(WilorOutput& output) {
+    if (output.batch_size <= 0) {
+        return;
+    }
+
+    output.pred_keypoints_3d.clear();
+    output.pred_vertices.clear();
+    output.pred_keypoints_3d.reserve(static_cast<std::size_t>(output.batch_size) * 63);
+    output.pred_vertices.reserve(static_cast<std::size_t>(output.batch_size) * 2334);
+
+    if (output.global_orient_rotmat.size() < static_cast<std::size_t>(output.batch_size) * 9
+        || output.hand_pose_rotmat.size() < static_cast<std::size_t>(output.batch_size) * 135
+        || output.betas.size() < static_cast<std::size_t>(output.batch_size) * 10) {
+        throw std::runtime_error("insufficient MANO parameter buffers for CPU geometry generation");
+    }
+
+    for (int batch_index = 0; batch_index < output.batch_size; ++batch_index) {
+        RunCpuMano(
+            output,
+            output.global_orient_rotmat.data() + batch_index * 9,
+            output.hand_pose_rotmat.data() + batch_index * 135,
+            output.betas.data() + batch_index * 10);
+    }
 }
 
 void WilorModel::AppendOutputBuffer(

@@ -13,6 +13,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include "newnewhand/fusion/stereo_hand_fuser.h"
+#include "newnewhand/io/offline_sequence_writer.h"
 #include "newnewhand/render/glfw_scene_viewer.h"
 
 namespace {
@@ -38,6 +39,7 @@ std::string FormatPoint(float x, float y) {
 
 struct DemoOptions {
     std::string output_dir = "results/stereo_fused_hand_pose";
+    std::string offline_dump_dir;
     std::string debug_dir = "debug/wilor_failures";
     std::string ort_profile_prefix;
     std::string calibration_path = DefaultCalibrationPath();
@@ -70,6 +72,7 @@ DemoOptions ParseArgs(int argc, char** argv) {
 
         if (arg == "--output_dir") options.output_dir = require_value(arg);
         else if (arg == "--debug_dir") options.debug_dir = require_value(arg);
+        else if (arg == "--offline_dump_dir") options.offline_dump_dir = require_value(arg);
         else if (arg == "--ort_profile") options.ort_profile_prefix = require_value(arg);
         else if (arg == "--calibration") options.calibration_path = require_value(arg);
         else if (arg == "--cam0_serial") options.cam0_serial = require_value(arg);
@@ -99,6 +102,7 @@ DemoOptions ParseArgs(int argc, char** argv) {
                 << "  --wilor_model <path>      default: " << DefaultWilorModelPath() << "\n"
                 << "  --mano_model <path>       default: " << DefaultManoModelPath() << "\n"
                 << "  --output_dir <dir>        default: results/stereo_fused_hand_pose\n"
+                << "  --offline_dump_dir <dir>  default: disabled\n"
                 << "  --save | --no_save        default: --save\n"
                 << "  --preview | --no_preview  default: --preview\n"
                 << "  --glfw_view | --no_glfw_view  default: --glfw_view\n"
@@ -156,6 +160,18 @@ int main(int argc, char** argv) {
         fuser_config.require_both_views = true;
         fuser_config.verbose_logging = options.verbose;
         newnewhand::StereoHandFuser fuser(std::move(fuser_config));
+
+        std::unique_ptr<newnewhand::OfflineSequenceWriter> offline_writer;
+        if (!options.offline_dump_dir.empty()) {
+            newnewhand::OfflineSequenceWriterConfig writer_config;
+            writer_config.output_root = options.offline_dump_dir;
+            writer_config.calibration_source_path = options.calibration_path;
+            writer_config.save_raw_images = true;
+            writer_config.save_overlay_images = true;
+            offline_writer = std::make_unique<newnewhand::OfflineSequenceWriter>(writer_config, calibration);
+            offline_writer->Initialize();
+        }
+
         newnewhand::GlfwSceneViewerConfig viewer_config;
         viewer_config.has_cam1_pose = true;
         viewer_config.cam1_rotation_cam1_to_cam0 = cv::Matx33f(calibration.rotation).t();
@@ -234,6 +250,10 @@ int main(int argc, char** argv) {
                         }
                     }
                     SaveFusedYaml(fuser, fused_frame, options.output_dir);
+                }
+
+                if (offline_writer) {
+                    offline_writer->SaveFrame(stereo_frame, fused_frame);
                 }
 
                 if (frame_interval.count() > 0) {

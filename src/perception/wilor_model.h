@@ -31,6 +31,7 @@ public:
     ~WilorModel();
 
     WilorOutput Infer(const std::vector<cv::Mat>& patches);
+    void FillCpuManoGeometry(WilorOutput& output);
 
 private:
     void AppendOutputBuffer(
