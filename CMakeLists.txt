@@ -82,6 +82,10 @@ target_include_directories(newnewhand_visualization
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+target_compile_definitions(newnewhand_visualization
+    PRIVATE
+        NEWNEWHAND_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
+)
 target_link_libraries(newnewhand_visualization
     PUBLIC
         ${OpenCV_LIBS}

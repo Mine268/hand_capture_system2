@@ -14,6 +14,9 @@ struct HandPoseOverlayStyle {
     double label_scale = 0.7;
     bool draw_bbox = true;
     bool draw_label = true;
+    bool draw_mesh = true;
+    bool draw_mesh_wireframe = false;
+    double mesh_alpha = 0.72;
 };
 
 void DrawHandPoseOverlay(

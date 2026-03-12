@@ -110,6 +110,33 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
         detections.push_back(clamped);
     }
 
+    std::array<bool, 2> has_best = {false, false};
+    std::array<Detection, 2> best_detection = {};
+    for (const auto& detection : detections) {
+        const int handedness_index = detection.class_id == 1 ? 1 : 0;
+        const float area = (detection.x2 - detection.x1) * (detection.y2 - detection.y1);
+        if (!has_best[handedness_index]) {
+            best_detection[handedness_index] = detection;
+            has_best[handedness_index] = true;
+            continue;
+        }
+
+        const auto& current_best = best_detection[handedness_index];
+        const float current_best_area =
+            (current_best.x2 - current_best.x1) * (current_best.y2 - current_best.y1);
+        if (area > current_best_area) {
+            best_detection[handedness_index] = detection;
+        }
+    }
+
+    detections.clear();
+    if (has_best[0]) {
+        detections.push_back(best_detection[0]);
+    }
+    if (has_best[1]) {
+        detections.push_back(best_detection[1]);
+    }
+
     if (detections.empty()) {
         return {};
     }
@@ -184,6 +211,7 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
         result.crop_center[0] = hand_crop.center_x;
         result.crop_center[1] = hand_crop.center_y;
         result.crop_size = hand_crop.bbox_size;
+        result.focal_length_px = scaled_focal_length;
 
         float pred_cam[3] = {
             wilor_output.pred_cam[0],

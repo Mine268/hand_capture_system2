@@ -18,6 +18,7 @@ struct HandPoseResult {
     HandDetection detection;
     float crop_center[2] = {0.0f, 0.0f};
     float crop_size = 0.0f;
+    float focal_length_px = 0.0f;
     float pred_cam[3] = {0.0f, 0.0f, 0.0f};
     float camera_translation[3] = {0.0f, 0.0f, 0.0f};
     float keypoints_2d[21][2] = {};
