@@ -25,7 +25,8 @@ struct ThirdPersonHandViewStyle {
     float yaw_degrees = -35.0f;
     float pitch_degrees = 18.0f;
     float roll_degrees = 0.0f;
-    float fit_padding = 1.8f;
+    float camera_distance = 1.2f;
+    float focal_scale = 0.9f;
     bool draw_mesh = true;
     bool draw_wireframe = true;
     cv::Scalar background_color = cv::Scalar(18, 18, 18);

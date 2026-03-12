@@ -304,16 +304,8 @@ cv::Mat RenderThirdPersonHandMeshView(
     }
     centroid *= (1.0f / static_cast<float>(world_vertices.size()));
 
-    float max_radius = 0.0f;
-    for (const auto& vertex : world_vertices) {
-        max_radius = std::max(max_radius, static_cast<float>(cv::norm(vertex - centroid)));
-    }
-    if (max_radius < 1e-5f) {
-        max_radius = 0.05f;
-    }
-
-    const float view_distance = max_radius * (2.0f + style.fit_padding);
-    const float focal = static_cast<float>(std::min(style.width, style.height)) * 0.9f;
+    const float view_distance = style.camera_distance;
+    const float focal = static_cast<float>(std::min(style.width, style.height)) * style.focal_scale;
     const cv::Point2f principal_point(style.width * 0.5f, style.height * 0.5f);
 
     std::vector<RenderTriangle> triangles;

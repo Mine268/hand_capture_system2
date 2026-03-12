@@ -31,8 +31,8 @@ struct StereoFusedHandPoseFrame {
 
 struct StereoHandFuserConfig {
     StereoCalibrationResult calibration;
-    bool keep_monocular_fallback = true;
-    bool prefer_view0_geometry = true;
+    bool require_both_views = true;
+    bool verbose_logging = true;
 };
 
 class StereoHandFuser {
