@@ -11,3 +11,4 @@ results*.png
 debug/
 resources/models/
 resources/stereo_calibration_scene.png
+offline_dump/
