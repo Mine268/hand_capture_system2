@@ -86,6 +86,65 @@ void PerspectiveProjection(
     }
 }
 
+void RotationMatrixToRotationVector(const float* rotation_matrix, float* rotation_vector) {
+    const float r00 = rotation_matrix[0];
+    const float r01 = rotation_matrix[1];
+    const float r02 = rotation_matrix[2];
+    const float r10 = rotation_matrix[3];
+    const float r11 = rotation_matrix[4];
+    const float r12 = rotation_matrix[5];
+    const float r20 = rotation_matrix[6];
+    const float r21 = rotation_matrix[7];
+    const float r22 = rotation_matrix[8];
+
+    const float trace = r00 + r11 + r22;
+    const float cos_theta = std::clamp((trace - 1.0f) * 0.5f, -1.0f, 1.0f);
+    const float theta = std::acos(cos_theta);
+    constexpr float kSmallAngle = 1e-5f;
+    constexpr float kPiAngle = 1e-4f;
+
+    if (theta < kSmallAngle) {
+        rotation_vector[0] = 0.5f * (r21 - r12);
+        rotation_vector[1] = 0.5f * (r02 - r20);
+        rotation_vector[2] = 0.5f * (r10 - r01);
+        return;
+    }
+
+    if (static_cast<float>(M_PI) - theta < kPiAngle) {
+        float axis_x = std::sqrt(std::max(0.0f, (r00 + 1.0f) * 0.5f));
+        float axis_y = std::sqrt(std::max(0.0f, (r11 + 1.0f) * 0.5f));
+        float axis_z = std::sqrt(std::max(0.0f, (r22 + 1.0f) * 0.5f));
+
+        if (r21 - r12 < 0.0f) {
+            axis_x = -axis_x;
+        }
+        if (r02 - r20 < 0.0f) {
+            axis_y = -axis_y;
+        }
+        if (r10 - r01 < 0.0f) {
+            axis_z = -axis_z;
+        }
+
+        const float axis_norm = std::sqrt(axis_x * axis_x + axis_y * axis_y + axis_z * axis_z);
+        if (axis_norm > kSmallAngle) {
+            axis_x /= axis_norm;
+            axis_y /= axis_norm;
+            axis_z /= axis_norm;
+        }
+
+        rotation_vector[0] = theta * axis_x;
+        rotation_vector[1] = theta * axis_y;
+        rotation_vector[2] = theta * axis_z;
+        return;
+    }
+
+    const float sin_theta = std::sin(theta);
+    const float scale = theta / (2.0f * sin_theta);
+    rotation_vector[0] = scale * (r21 - r12);
+    rotation_vector[1] = scale * (r02 - r20);
+    rotation_vector[2] = scale * (r10 - r01);
+}
+
 cv::Mat AntiAliasBlur(const cv::Mat& image, float bbox_size, int patch_size) {
     const float downsample_factor = (bbox_size / static_cast<float>(patch_size)) * 0.5f;
     if (downsample_factor <= 1.1f) {

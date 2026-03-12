@@ -19,7 +19,7 @@ namespace {
 constexpr const char* kDefaultDetectorModelPath =
     "/home/renkaiwen/src/wilor_deploy/wilor_deploy/WiLoR-mini/wilor_mini/pretrained_models/detector.onnx";
 constexpr const char* kDefaultWilorModelPath =
-    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/onnx_model/wilor.onnx";
+    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/onnx_model/wilor_safe_rotmat_opset16.onnx";
 
 struct DemoOptions {
     std::string output_dir = "results/stereo_single_view_pose";

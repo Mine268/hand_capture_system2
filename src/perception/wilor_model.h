@@ -12,7 +12,9 @@ struct WilorOutput {
     int batch_size = 0;
     std::vector<float> pred_cam;
     std::vector<float> global_orient;
+    std::vector<float> global_orient_rotmat;
     std::vector<float> hand_pose;
+    std::vector<float> hand_pose_rotmat;
     std::vector<float> betas;
     std::vector<float> pred_keypoints_3d;
     std::vector<float> pred_vertices;

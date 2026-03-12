@@ -203,14 +203,28 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
             result.keypoints_3d,
             wilor_output.pred_keypoints_3d.data(),
             sizeof(float) * 21 * 3);
-        std::memcpy(
-            result.global_orient,
-            wilor_output.global_orient.data(),
-            sizeof(float) * 3);
-        std::memcpy(
-            result.hand_pose,
-            wilor_output.hand_pose.data(),
-            sizeof(float) * 15 * 3);
+        if (!wilor_output.global_orient_rotmat.empty()) {
+            hand_pose_utils::RotationMatrixToRotationVector(
+                wilor_output.global_orient_rotmat.data(),
+                result.global_orient);
+        } else {
+            std::memcpy(
+                result.global_orient,
+                wilor_output.global_orient.data(),
+                sizeof(float) * 3);
+        }
+        if (!wilor_output.hand_pose_rotmat.empty()) {
+            for (int pose_index = 0; pose_index < 15; ++pose_index) {
+                hand_pose_utils::RotationMatrixToRotationVector(
+                    wilor_output.hand_pose_rotmat.data() + pose_index * 9,
+                    result.hand_pose[pose_index]);
+            }
+        } else {
+            std::memcpy(
+                result.hand_pose,
+                wilor_output.hand_pose.data(),
+                sizeof(float) * 15 * 3);
+        }
         std::memcpy(
             result.betas,
             wilor_output.betas.data(),

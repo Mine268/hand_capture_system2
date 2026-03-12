@@ -32,6 +32,8 @@ void PerspectiveProjection(
     float cy,
     float* points_2d);
 
+void RotationMatrixToRotationVector(const float* rotation_matrix, float* rotation_vector);
+
 cv::Mat AntiAliasBlur(const cv::Mat& image, float bbox_size, int patch_size);
 
 }  // namespace newnewhand::hand_pose_utils

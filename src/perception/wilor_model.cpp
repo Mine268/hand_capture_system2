@@ -50,7 +50,9 @@ WilorOutput WilorModel::Infer(const std::vector<cv::Mat>& patches) {
     output.batch_size = batch_size;
     output.pred_cam.reserve(static_cast<std::size_t>(batch_size) * 3);
     output.global_orient.reserve(static_cast<std::size_t>(batch_size) * 3);
+    output.global_orient_rotmat.reserve(static_cast<std::size_t>(batch_size) * 9);
     output.hand_pose.reserve(static_cast<std::size_t>(batch_size) * 45);
+    output.hand_pose_rotmat.reserve(static_cast<std::size_t>(batch_size) * 135);
     output.betas.reserve(static_cast<std::size_t>(batch_size) * 10);
     output.pred_keypoints_3d.reserve(static_cast<std::size_t>(batch_size) * 63);
     output.pred_vertices.reserve(static_cast<std::size_t>(batch_size) * 2334);
@@ -111,8 +113,12 @@ WilorOutput WilorModel::Infer(const std::vector<cv::Mat>& patches) {
                 target = &output.pred_cam;
             } else if (name == "global_orient") {
                 target = &output.global_orient;
+            } else if (name == "global_orient_rotmat") {
+                target = &output.global_orient_rotmat;
             } else if (name == "hand_pose") {
                 target = &output.hand_pose;
+            } else if (name == "hand_pose_rotmat") {
+                target = &output.hand_pose_rotmat;
             } else if (name == "betas") {
                 target = &output.betas;
             } else if (name == "pred_keypoints_3d") {
