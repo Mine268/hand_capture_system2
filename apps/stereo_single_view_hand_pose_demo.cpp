@@ -51,7 +51,6 @@ struct DemoOptions {
     int frames = -1;
     bool preview = true;
     bool save = false;
-    bool third_person_preview = true;
     bool use_gpu = true;
 };
 
@@ -99,10 +98,6 @@ DemoOptions ParseArgs(int argc, char** argv) {
             options.save = true;
         } else if (arg == "--no_save") {
             options.save = false;
-        } else if (arg == "--third_person") {
-            options.third_person_preview = true;
-        } else if (arg == "--no_third_person") {
-            options.third_person_preview = false;
         } else if (arg == "--gpu") {
             options.use_gpu = true;
         } else if (arg == "--cpu") {
@@ -124,7 +119,6 @@ DemoOptions ParseArgs(int argc, char** argv) {
                 << "  --frames <int>            default: -1 (run until quit)\n"
                 << "  --save | --no_save        default: --no_save\n"
                 << "  --preview | --no_preview  default: --preview\n"
-                << "  --third_person | --no_third_person  default: --third_person\n"
                 << "  --gpu | --cpu            default: --gpu\n";
             std::exit(0);
         } else {
@@ -151,7 +145,6 @@ void PrintEffectiveConfig(const DemoOptions& options) {
     std::cout << "  frames=" << options.frames << "\n";
     std::cout << "  preview=" << (options.preview ? "true" : "false") << "\n";
     std::cout << "  save=" << (options.save ? "true" : "false") << "\n";
-    std::cout << "  third_person_preview=" << (options.third_person_preview ? "true" : "false") << "\n";
     std::cout << "  use_gpu=" << (options.use_gpu ? "true" : "false") << "\n";
 }
 
@@ -166,52 +159,6 @@ void SaveOverlayFrame(
     std::ostringstream name;
     name << std::setw(6) << std::setfill('0') << capture_index << ".png";
     cv::imwrite((camera_dir / name.str()).string(), image);
-}
-
-void SaveThirdPersonFrame(
-    const std::filesystem::path& root,
-    std::size_t camera_index,
-    std::uint64_t capture_index,
-    const cv::Mat& image) {
-    const std::filesystem::path camera_dir =
-        root / "third_person" / ("cam" + std::to_string(camera_index));
-    std::filesystem::create_directories(camera_dir);
-
-    std::ostringstream name;
-    name << std::setw(6) << std::setfill('0') << capture_index << ".png";
-    cv::imwrite((camera_dir / name.str()).string(), image);
-}
-
-cv::Mat BuildThirdPersonPanel(
-    const newnewhand::StereoSingleViewPoseFrame& pose_frame) {
-    std::vector<cv::Mat> tiles;
-    for (std::size_t camera_index = 0; camera_index < pose_frame.views.size(); ++camera_index) {
-        if (pose_frame.views[camera_index].third_person_image.empty()) {
-            continue;
-        }
-
-        cv::Mat tile = pose_frame.views[camera_index].third_person_image.clone();
-        cv::putText(
-            tile,
-            "cam" + std::to_string(camera_index),
-            cv::Point(18, tile.rows - 18),
-            cv::FONT_HERSHEY_SIMPLEX,
-            0.8,
-            cv::Scalar(235, 235, 235),
-            2);
-        tiles.push_back(std::move(tile));
-    }
-
-    if (tiles.empty()) {
-        return {};
-    }
-    if (tiles.size() == 1) {
-        return tiles.front();
-    }
-
-    cv::Mat panel;
-    cv::hconcat(tiles, panel);
-    return panel;
 }
 
 }  // namespace
@@ -254,8 +201,6 @@ int main(int argc, char** argv) {
         if (options.save) {
             std::filesystem::create_directories(options.output_dir);
         }
-
-        bool third_person_enabled = options.third_person_preview;
 
         const auto frame_interval = options.fps == 0
             ? std::chrono::microseconds(0)
@@ -306,32 +251,13 @@ int main(int argc, char** argv) {
                         camera_index,
                         pose_frame.capture_index,
                         view.overlay_image);
-                    if (!view.third_person_image.empty()) {
-                        SaveThirdPersonFrame(
-                            options.output_dir,
-                            camera_index,
-                            pose_frame.capture_index,
-                            view.third_person_image);
-                    }
                 }
             }
 
             if (options.preview) {
-                if (third_person_enabled) {
-                    cv::Mat third_person_panel = BuildThirdPersonPanel(pose_frame);
-                    if (!third_person_panel.empty()) {
-                        cv::imshow("third_person", third_person_panel);
-                    }
-                } else {
-                    cv::destroyWindow("third_person");
-                }
-
                 const int key = cv::waitKey(1);
                 if (key == 'q' || key == 27) {
                     break;
-                }
-                if (key == 't' || key == 'T') {
-                    third_person_enabled = !third_person_enabled;
                 }
             }
 

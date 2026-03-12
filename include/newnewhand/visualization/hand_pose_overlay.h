@@ -42,8 +42,4 @@ cv::Mat RenderHandPoseOverlay(
     const std::vector<HandPoseResult>& results,
     const HandPoseOverlayStyle& style = {});
 
-cv::Mat RenderThirdPersonHandMeshView(
-    const std::vector<HandPoseResult>& results,
-    const ThirdPersonHandViewStyle& style = {});
-
 }  // namespace newnewhand

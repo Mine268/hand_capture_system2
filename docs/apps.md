@@ -77,17 +77,11 @@ Example:
   --output_dir results/stereo_single_view_pose_split
 ```
 
-Shortcuts:
-
-- `q` / `Esc`: quit
-- `t`: toggle third-person preview window
-
 Important options:
 
 - `--gpu` / `--cpu`
 - `--preview` / `--no_preview`
 - `--save` / `--no_save`
-- `--third_person` / `--no_third_person`
 - `--ort_profile <prefix>` writes ONNX Runtime profile JSON for detector/backbone diagnosis
 - model paths default to `resources/models/`
 
@@ -151,4 +145,7 @@ Notes:
   - `W/S`: pitch
   - `A/D`: yaw
   - `Q/E`: roll
+  - `I/K`: move scene up/down in view
+  - `J/L`: move scene left/right in view
+  - `Z/X`: zoom in/out
 - use `--no_glfw_view` to disable the GLFW renderer

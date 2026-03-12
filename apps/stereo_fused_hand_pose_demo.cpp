@@ -216,9 +216,6 @@ int main(int argc, char** argv) {
                             cv::imshow("fused_pose_cam" + std::to_string(i), preview);
                         }
                     }
-                    if (!fused_frame.fused_third_person_image.empty()) {
-                        cv::imshow("fused_third_person", fused_frame.fused_third_person_image);
-                    }
                     const int key = cv::waitKey(1);
                     if (key == 'q' || key == 27) {
                         break;
@@ -230,9 +227,6 @@ int main(int argc, char** argv) {
                         if (!stereo_frame.views[i].overlay_image.empty()) {
                             SaveImage(options.output_dir, "cam" + std::to_string(i), fused_frame.capture_index, stereo_frame.views[i].overlay_image);
                         }
-                    }
-                    if (!fused_frame.fused_third_person_image.empty()) {
-                        SaveImage(options.output_dir, "fused_third_person", fused_frame.capture_index, fused_frame.fused_third_person_image);
                     }
                     SaveFusedYaml(fuser, fused_frame, options.output_dir);
                 }

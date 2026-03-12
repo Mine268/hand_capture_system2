@@ -80,7 +80,6 @@ StereoFusedHandPoseFrame StereoHandFuser::Fuse(const StereoSingleViewPoseFrame& 
     for (const auto& hand : fused_frame.hands) {
         fused_results.push_back(hand.pose_cam0);
     }
-    fused_frame.fused_third_person_image = RenderThirdPersonHandMeshView(fused_results);
     return fused_frame;
 }
 

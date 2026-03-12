@@ -5,7 +5,6 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
-#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -32,12 +31,25 @@ void DrawLine(const std::array<float, 3>& a, const std::array<float, 3>& b, cons
     glEnd();
 }
 
-void DrawTextBitmap(float x, float y, const std::string& text) {
-    glRasterPos2f(x, y);
-    for (char c : text) {
-        glfwGetProcAddress("glutBitmapCharacter");
-        (void)c;
+std::array<float, 3> Cross(const std::array<float, 3>& a, const std::array<float, 3>& b) {
+    return {
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    };
+}
+
+void Normalize(std::array<float, 3>& v) {
+    const float norm = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (norm > 1e-6f) {
+        v[0] /= norm;
+        v[1] /= norm;
+        v[2] /= norm;
     }
+}
+
+std::array<float, 3> Sub(const std::array<float, 3>& a, const std::array<float, 3>& b) {
+    return {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
 }
 
 }  // namespace
@@ -85,13 +97,34 @@ bool GlfwSceneViewer::Initialize() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_CULL_FACE);
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+    glEnable(GL_LIGHT1);
+    glEnable(GL_COLOR_MATERIAL);
+    glEnable(GL_NORMALIZE);
+    glShadeModel(GL_SMOOTH);
+    glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+
+    const GLfloat light0_position[] = {0.25f, 0.85f, 1.1f, 0.0f};
+    const GLfloat light0_diffuse[] = {0.95f, 0.95f, 0.92f, 1.0f};
+    const GLfloat light0_specular[] = {0.35f, 0.35f, 0.35f, 1.0f};
+    const GLfloat light1_position[] = {-0.8f, -0.3f, 0.6f, 0.0f};
+    const GLfloat light1_diffuse[] = {0.32f, 0.36f, 0.48f, 1.0f};
+    const GLfloat global_ambient[] = {0.18f, 0.18f, 0.18f, 1.0f};
+    glLightfv(GL_LIGHT0, GL_POSITION, light0_position);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, light0_diffuse);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, light0_specular);
+    glLightfv(GL_LIGHT1, GL_POSITION, light1_position);
+    glLightfv(GL_LIGHT1, GL_DIFFUSE, light1_diffuse);
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, global_ambient);
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 
     if (!LoadManoFaces()) {
         std::cerr << "[glfw] failed to load MANO faces from resources\n";
     }
 
     last_frame_time_seconds_ = glfwGetTime();
-    std::cerr << "[glfw] controls: W/S pitch, A/D yaw, Q/E roll, ESC close window\n";
+    std::cerr << "[glfw] controls: W/S pitch, A/D yaw, Q/E roll, I/K pan Y, J/L pan X, Z/X zoom, ESC close window\n";
     return true;
 }
 
@@ -127,10 +160,14 @@ bool GlfwSceneViewer::Render(const StereoFusedHandPoseFrame& frame) {
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     glTranslatef(0.0f, 0.0f, -config_.camera_distance);
+    glTranslatef(config_.pan_x, config_.pan_y, 0.0f);
     glRotatef(config_.roll_degrees, 0.0f, 0.0f, 1.0f);
     glRotatef(config_.pitch_degrees, 1.0f, 0.0f, 0.0f);
     glRotatef(config_.yaw_degrees, 0.0f, 1.0f, 0.0f);
 
+    if (config_.draw_ground_grid) {
+        DrawGroundGrid(0.35f, 0.05f);
+    }
     if (config_.draw_world_axes || config_.draw_cam0_axes) {
         DrawAxes(config_.axis_length);
     }
@@ -173,6 +210,24 @@ void GlfwSceneViewer::HandleInput(float dt_seconds) {
     if (glfwGetKey(window_, GLFW_KEY_E) == GLFW_PRESS) {
         config_.roll_degrees += delta;
     }
+    if (glfwGetKey(window_, GLFW_KEY_J) == GLFW_PRESS) {
+        config_.pan_x += config_.translation_speed * dt_seconds;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_L) == GLFW_PRESS) {
+        config_.pan_x -= config_.translation_speed * dt_seconds;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_I) == GLFW_PRESS) {
+        config_.pan_y -= config_.translation_speed * dt_seconds;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_K) == GLFW_PRESS) {
+        config_.pan_y += config_.translation_speed * dt_seconds;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_Z) == GLFW_PRESS) {
+        config_.camera_distance = std::max(0.08f, config_.camera_distance - config_.zoom_speed * dt_seconds);
+    }
+    if (glfwGetKey(window_, GLFW_KEY_X) == GLFW_PRESS) {
+        config_.camera_distance += config_.zoom_speed * dt_seconds;
+    }
     if (glfwGetKey(window_, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window_, GLFW_TRUE);
     }
@@ -191,12 +246,17 @@ void GlfwSceneViewer::SetupProjection() const {
 }
 
 void GlfwSceneViewer::DrawAxes(float axis_length) const {
+    glDisable(GL_LIGHTING);
+    glLineWidth(2.5f);
     DrawLine({0.0f, 0.0f, 0.0f}, {axis_length, 0.0f, 0.0f}, {1.0f, 0.15f, 0.15f});
     DrawLine({0.0f, 0.0f, 0.0f}, {0.0f, axis_length, 0.0f}, {0.15f, 1.0f, 0.15f});
     DrawLine({0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, axis_length}, {0.15f, 0.45f, 1.0f});
+    glLineWidth(1.0f);
+    glEnable(GL_LIGHTING);
 }
 
 void GlfwSceneViewer::DrawCam0Frustum(float scale) const {
+    glDisable(GL_LIGHTING);
     const std::array<std::array<float, 3>, 4> plane = {{
         {-0.6f * scale, -0.4f * scale, scale},
         {0.6f * scale, -0.4f * scale, scale},
@@ -210,6 +270,24 @@ void GlfwSceneViewer::DrawCam0Frustum(float scale) const {
     for (std::size_t i = 0; i < plane.size(); ++i) {
         DrawLine(plane[i], plane[(i + 1) % plane.size()], {0.80f, 0.80f, 0.15f});
     }
+    glEnable(GL_LIGHTING);
+}
+
+void GlfwSceneViewer::DrawGroundGrid(float extent, float step) const {
+    glDisable(GL_LIGHTING);
+    glLineWidth(1.0f);
+    glBegin(GL_LINES);
+    for (float v = -extent; v <= extent + 1e-6f; v += step) {
+        const bool major = std::abs(std::fmod(v + extent, step * 4.0f)) < 1e-4f;
+        const float color = major ? 0.28f : 0.18f;
+        glColor3f(color, color, color);
+        glVertex3f(v, -extent, 0.0f);
+        glVertex3f(v, extent, 0.0f);
+        glVertex3f(-extent, v, 0.0f);
+        glVertex3f(extent, v, 0.0f);
+    }
+    glEnd();
+    glEnable(GL_LIGHTING);
 }
 
 void GlfwSceneViewer::DrawHands(const StereoFusedHandPoseFrame& frame) const {
@@ -222,32 +300,62 @@ void GlfwSceneViewer::DrawHands(const StereoFusedHandPoseFrame& frame) const {
             ? std::array<float, 3>{0.95f, 0.70f, 0.20f}
             : std::array<float, 3>{0.82f, 0.35f, 0.95f};
 
-        glColor4f(base[0], base[1], base[2], 0.78f);
+        std::array<std::array<float, 3>, 778> vertices{};
+        std::array<std::array<float, 3>, 778> normals{};
+        for (int i = 0; i < 778; ++i) {
+            vertices[i] = {
+                hand.pose_cam0.vertices[i][0] + hand.pose_cam0.camera_translation[0],
+                hand.pose_cam0.vertices[i][1] + hand.pose_cam0.camera_translation[1],
+                hand.pose_cam0.vertices[i][2] + hand.pose_cam0.camera_translation[2],
+            };
+            normals[i] = {0.0f, 0.0f, 0.0f};
+        }
+        for (const auto& face : mano_faces_) {
+            const auto e1 = Sub(vertices[face[1]], vertices[face[0]]);
+            const auto e2 = Sub(vertices[face[2]], vertices[face[0]]);
+            auto n = Cross(e1, e2);
+            Normalize(n);
+            for (int idx : face) {
+                normals[idx][0] += n[0];
+                normals[idx][1] += n[1];
+                normals[idx][2] += n[2];
+            }
+        }
+        for (auto& n : normals) {
+            Normalize(n);
+        }
+
+        const GLfloat specular[] = {0.25f, 0.25f, 0.25f, 1.0f};
+        const GLfloat shininess[] = {32.0f};
+        glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, specular);
+        glMaterialfv(GL_FRONT_AND_BACK, GL_SHININESS, shininess);
+        glColor4f(base[0], base[1], base[2], 0.92f);
         glBegin(GL_TRIANGLES);
         for (const auto& face : mano_faces_) {
-            const float* v0 = hand.pose_cam0.vertices[face[0]];
-            const float* v1 = hand.pose_cam0.vertices[face[1]];
-            const float* v2 = hand.pose_cam0.vertices[face[2]];
-            glVertex3f(v0[0] + hand.pose_cam0.camera_translation[0], v0[1] + hand.pose_cam0.camera_translation[1], v0[2] + hand.pose_cam0.camera_translation[2]);
-            glVertex3f(v1[0] + hand.pose_cam0.camera_translation[0], v1[1] + hand.pose_cam0.camera_translation[1], v1[2] + hand.pose_cam0.camera_translation[2]);
-            glVertex3f(v2[0] + hand.pose_cam0.camera_translation[0], v2[1] + hand.pose_cam0.camera_translation[1], v2[2] + hand.pose_cam0.camera_translation[2]);
+            for (int corner = 0; corner < 3; ++corner) {
+                const int idx = face[corner];
+                glNormal3f(normals[idx][0], normals[idx][1], normals[idx][2]);
+                glVertex3f(vertices[idx][0], vertices[idx][1], vertices[idx][2]);
+            }
         }
         glEnd();
 
         if (config_.draw_wireframe) {
+            glDisable(GL_LIGHTING);
             glColor3f(0.05f, 0.05f, 0.05f);
             glBegin(GL_LINES);
             for (const auto& face : mano_faces_) {
-                const float* v0 = hand.pose_cam0.vertices[face[0]];
-                const float* v1 = hand.pose_cam0.vertices[face[1]];
-                const float* v2 = hand.pose_cam0.vertices[face[2]];
-                const std::array<std::array<const float*, 2>, 3> edges = {{{v0, v1}, {v1, v2}, {v2, v0}}};
+                const auto& v0 = vertices[face[0]];
+                const auto& v1 = vertices[face[1]];
+                const auto& v2 = vertices[face[2]];
+                const std::array<std::array<std::array<float, 3>, 2>, 3> edges = {{{v0, v1}, {v1, v2}, {v2, v0}}};
                 for (const auto& edge : edges) {
-                    glVertex3f(edge[0][0] + hand.pose_cam0.camera_translation[0], edge[0][1] + hand.pose_cam0.camera_translation[1], edge[0][2] + hand.pose_cam0.camera_translation[2]);
-                    glVertex3f(edge[1][0] + hand.pose_cam0.camera_translation[0], edge[1][1] + hand.pose_cam0.camera_translation[1], edge[1][2] + hand.pose_cam0.camera_translation[2]);
+                    glVertex3f(edge[0][0], edge[0][1], edge[0][2]);
+                    glVertex3f(edge[1][0], edge[1][1], edge[1][2]);
                 }
             }
             glEnd();
+            glEnable(GL_LIGHTING);
         }
     }
 }
@@ -268,8 +376,4 @@ bool GlfwSceneViewer::LoadManoFaces() {
     }
     return !mano_faces_.empty();
 }
-
-void GlfwSceneViewer::DrawOverlayText() const {
-}
-
 }  // namespace newnewhand

@@ -16,7 +16,6 @@ struct SingleViewPoseView {
     CameraFrame camera_frame;
     std::vector<HandPoseResult> hand_poses;
     cv::Mat overlay_image;
-    cv::Mat third_person_image;
     std::string inference_error;
     bool used_cpu_fallback = false;
 };

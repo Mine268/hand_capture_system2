@@ -26,7 +26,6 @@ struct StereoFusedHandPoseFrame {
     std::uint64_t capture_index = 0;
     std::chrono::steady_clock::time_point trigger_timestamp;
     std::vector<FusedHandPose> hands;
-    cv::Mat fused_third_person_image;
 };
 
 struct StereoHandFuserConfig {
