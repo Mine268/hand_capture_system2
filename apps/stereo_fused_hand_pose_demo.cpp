@@ -13,6 +13,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include "newnewhand/fusion/stereo_hand_fuser.h"
+#include "newnewhand/render/glfw_scene_viewer.h"
 
 namespace {
 
@@ -53,6 +54,7 @@ struct DemoOptions {
     bool save = true;
     bool use_gpu = true;
     bool verbose = true;
+    bool glfw_view = true;
 };
 
 DemoOptions ParseArgs(int argc, char** argv) {
@@ -83,6 +85,8 @@ DemoOptions ParseArgs(int argc, char** argv) {
         else if (arg == "--no_preview") options.preview = false;
         else if (arg == "--save") options.save = true;
         else if (arg == "--no_save") options.save = false;
+        else if (arg == "--glfw_view") options.glfw_view = true;
+        else if (arg == "--no_glfw_view") options.glfw_view = false;
         else if (arg == "--gpu") options.use_gpu = true;
         else if (arg == "--cpu") options.use_gpu = false;
         else if (arg == "--verbose") options.verbose = true;
@@ -97,6 +101,7 @@ DemoOptions ParseArgs(int argc, char** argv) {
                 << "  --output_dir <dir>        default: results/stereo_fused_hand_pose\n"
                 << "  --save | --no_save        default: --save\n"
                 << "  --preview | --no_preview  default: --preview\n"
+                << "  --glfw_view | --no_glfw_view  default: --glfw_view\n"
                 << "  --verbose | --quiet       default: --verbose\n"
                 << "  --gpu | --cpu             default: --gpu\n";
             std::exit(0);
@@ -151,9 +156,14 @@ int main(int argc, char** argv) {
         fuser_config.require_both_views = true;
         fuser_config.verbose_logging = options.verbose;
         newnewhand::StereoHandFuser fuser(std::move(fuser_config));
+        newnewhand::GlfwSceneViewer viewer;
         newnewhand::StereoSingleViewHandPosePipeline pipeline(pipeline_config);
         pipeline.Initialize();
         pipeline.Start();
+
+        if (options.glfw_view && !viewer.Initialize()) {
+            throw std::runtime_error("failed to initialize GLFW OpenGL viewer");
+        }
 
         const auto frame_interval = options.fps == 0
             ? std::chrono::microseconds(0)
@@ -190,6 +200,13 @@ int main(int argc, char** argv) {
 
                 const auto fused_frame = fuser.Fuse(stereo_frame);
                 std::cout << "capture=" << fused_frame.capture_index << " fused_hands=" << fused_frame.hands.size() << "\n";
+
+                if (options.glfw_view) {
+                    if (!viewer.Render(fused_frame)) {
+                        std::cerr << "[app] GLFW viewer closed by user\n";
+                        break;
+                    }
+                }
 
                 if (options.preview) {
                     for (std::size_t i = 0; i < stereo_frame.views.size(); ++i) {

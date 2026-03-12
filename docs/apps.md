@@ -145,6 +145,10 @@ Runs stereo capture, per-view hand pose estimation, and fuses the hand pose into
 Notes:
 
 - `--calibration <yaml>` is required
-- `--draw_ids` overlays board indices in the 3D scene
-- `--max_pairs <int>` limits how many valid boards are rendered
-- `--preview` opens the rendered scene window
+- OpenCV windows still show the per-view overlay images
+- a GLFW + OpenGL window renders the fused hand mesh in the `cam0` coordinate frame
+- controls in the GLFW window:
+  - `W/S`: pitch
+  - `A/D`: yaw
+  - `Q/E`: roll
+- use `--no_glfw_view` to disable the GLFW renderer

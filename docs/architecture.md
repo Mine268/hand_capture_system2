@@ -24,6 +24,9 @@ The project is split into five layers so each step can be developed and verified
 
 5. `render`
    - Optional real-time visualization for image overlays and mesh rendering.
+   - Split into:
+     - OpenCV overlay rendering on top of captured images
+     - GLFW + OpenGL scene rendering for interactive third-person inspection
    - Consumes fused hand pose results and calibration without affecting the core capture or inference pipeline.
 
 ## Runtime flow
@@ -45,6 +48,7 @@ Implemented:
 - stereo single-view runtime integration
 - 2D overlay, MANO mesh overlay, and third-person preview
 - initial step 3 stereo checkerboard calibration application
+- initial GLFW + OpenGL interactive scene viewer start
 
 Current application entry points:
 

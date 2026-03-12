@@ -16,6 +16,10 @@ set(
 
 find_package(OpenCV REQUIRED)
 find_package(Threads REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GLFW REQUIRED glfw3)
+pkg_check_modules(GLEW REQUIRED glew)
 
 add_library(onnxruntime SHARED IMPORTED)
 set_target_properties(onnxruntime PROPERTIES
@@ -133,6 +137,24 @@ target_link_libraries(newnewhand_calibration
         ${OpenCV_LIBS}
 )
 
+add_library(newnewhand_render_glfw STATIC
+    src/render/glfw_scene_viewer.cpp
+)
+target_include_directories(newnewhand_render_glfw
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+        ${GLFW_INCLUDE_DIRS}
+        ${GLEW_INCLUDE_DIRS}
+)
+target_link_libraries(newnewhand_render_glfw
+    PUBLIC
+        newnewhand_fusion
+        OpenGL::GL
+        ${GLFW_LIBRARIES}
+        ${GLEW_LIBRARIES}
+)
+
 if(BUILD_DEMOS)
     add_executable(stereo_capture_demo
         apps/stereo_capture_demo.cpp
@@ -189,6 +211,7 @@ if(BUILD_DEMOS)
     target_link_libraries(stereo_fused_hand_pose_demo
         PRIVATE
             newnewhand_fusion
+            newnewhand_render_glfw
     )
     set_target_properties(stereo_fused_hand_pose_demo PROPERTIES
         BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib;${MVS_ROOT}/lib/64"
