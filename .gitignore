@@ -1,0 +1,9 @@
+build/
+cmake-build-*/
+*.swp
+*.swo
+.DS_Store
+captures/
+results/
+output.png
+results*.png
