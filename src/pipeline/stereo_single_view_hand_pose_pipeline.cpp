@@ -116,6 +116,7 @@ StereoSingleViewPoseFrame StereoSingleViewHandPosePipeline::Estimate(const Stere
 
             if (!view.hand_poses.empty()) {
                 DrawHandPoseOverlay(view.overlay_image, view.hand_poses);
+                view.third_person_image = RenderThirdPersonHandMeshView(view.hand_poses);
             }
             if (!view.inference_error.empty()) {
                 DrawInferenceError(view.overlay_image, view.inference_error);

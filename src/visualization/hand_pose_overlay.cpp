@@ -83,6 +83,25 @@ cv::Scalar ShadeColor(const cv::Scalar& base_color, float brightness) {
     return cv::Scalar(base_color[0] * scale, base_color[1] * scale, base_color[2] * scale);
 }
 
+cv::Vec3f RotatePoint(const cv::Vec3f& point, float yaw_degrees, float pitch_degrees, float roll_degrees) {
+    const float yaw = yaw_degrees * static_cast<float>(CV_PI) / 180.0f;
+    const float pitch = pitch_degrees * static_cast<float>(CV_PI) / 180.0f;
+    const float roll = roll_degrees * static_cast<float>(CV_PI) / 180.0f;
+
+    const float cosy = std::cos(yaw);
+    const float siny = std::sin(yaw);
+    const float cosp = std::cos(pitch);
+    const float sinp = std::sin(pitch);
+    const float cosr = std::cos(roll);
+    const float sinr = std::sin(roll);
+
+    cv::Vec3f x = point;
+    x = cv::Vec3f(cosy * x[0] + siny * x[2], x[1], -siny * x[0] + cosy * x[2]);
+    x = cv::Vec3f(x[0], cosp * x[1] - sinp * x[2], sinp * x[1] + cosp * x[2]);
+    x = cv::Vec3f(cosr * x[0] - sinr * x[1], sinr * x[0] + cosr * x[1], x[2]);
+    return x;
+}
+
 void RenderHandMesh(
     cv::Mat& bgr_image,
     const HandPoseResult& result,
@@ -254,6 +273,124 @@ cv::Mat RenderHandPoseOverlay(
     cv::Mat rendered = bgr_image.clone();
     DrawHandPoseOverlay(rendered, results, style);
     return rendered;
+}
+
+cv::Mat RenderThirdPersonHandMeshView(
+    const std::vector<HandPoseResult>& results,
+    const ThirdPersonHandViewStyle& style) {
+    cv::Mat canvas(style.height, style.width, CV_8UC3, style.background_color);
+    const auto& faces = LoadManoFaces();
+    if (!style.draw_mesh || faces.empty() || results.empty()) {
+        return canvas;
+    }
+
+    std::vector<cv::Vec3f> world_vertices;
+    world_vertices.reserve(results.size() * 778);
+    for (const auto& result : results) {
+        for (int vertex_index = 0; vertex_index < 778; ++vertex_index) {
+            world_vertices.emplace_back(
+                result.vertices[vertex_index][0] + result.camera_translation[0],
+                result.vertices[vertex_index][1] + result.camera_translation[1],
+                result.vertices[vertex_index][2] + result.camera_translation[2]);
+        }
+    }
+    if (world_vertices.empty()) {
+        return canvas;
+    }
+
+    cv::Vec3f centroid(0.0f, 0.0f, 0.0f);
+    for (const auto& vertex : world_vertices) {
+        centroid += vertex;
+    }
+    centroid *= (1.0f / static_cast<float>(world_vertices.size()));
+
+    float max_radius = 0.0f;
+    for (const auto& vertex : world_vertices) {
+        max_radius = std::max(max_radius, static_cast<float>(cv::norm(vertex - centroid)));
+    }
+    if (max_radius < 1e-5f) {
+        max_radius = 0.05f;
+    }
+
+    const float view_distance = max_radius * (2.0f + style.fit_padding);
+    const float focal = static_cast<float>(std::min(style.width, style.height)) * 0.9f;
+    const cv::Point2f principal_point(style.width * 0.5f, style.height * 0.5f);
+
+    std::vector<RenderTriangle> triangles;
+    triangles.reserve(results.size() * faces.size());
+
+    for (const auto& result : results) {
+        std::array<cv::Vec3f, 778> transformed_vertices;
+        std::array<cv::Point2f, 778> projected_vertices;
+        const cv::Scalar base_color = HandMeshBaseColor(result.detection.is_right);
+
+        for (int vertex_index = 0; vertex_index < 778; ++vertex_index) {
+            const cv::Vec3f world(
+                result.vertices[vertex_index][0] + result.camera_translation[0] - centroid[0],
+                result.vertices[vertex_index][1] + result.camera_translation[1] - centroid[1],
+                result.vertices[vertex_index][2] + result.camera_translation[2] - centroid[2]);
+            cv::Vec3f camera_point = RotatePoint(
+                world,
+                style.yaw_degrees,
+                style.pitch_degrees,
+                style.roll_degrees);
+            camera_point[2] += view_distance;
+            transformed_vertices[vertex_index] = camera_point;
+
+            projected_vertices[vertex_index] = cv::Point2f(
+                focal * (camera_point[0] / camera_point[2]) + principal_point.x,
+                focal * (camera_point[1] / camera_point[2]) + principal_point.y);
+        }
+
+        for (const auto& face : faces) {
+            const cv::Vec3f v0 = transformed_vertices[face.v0];
+            const cv::Vec3f v1 = transformed_vertices[face.v1];
+            const cv::Vec3f v2 = transformed_vertices[face.v2];
+            if (v0[2] <= 1e-6f || v1[2] <= 1e-6f || v2[2] <= 1e-6f) {
+                continue;
+            }
+
+            const cv::Vec3f normal = (v1 - v0).cross(v2 - v0);
+            const float normal_norm = cv::norm(normal);
+            const float facing = normal_norm > 1e-6f ? std::abs(normal[2]) / normal_norm : 0.5f;
+            RenderTriangle triangle;
+            triangle.points = {
+                cv::Point(cvRound(projected_vertices[face.v0].x), cvRound(projected_vertices[face.v0].y)),
+                cv::Point(cvRound(projected_vertices[face.v1].x), cvRound(projected_vertices[face.v1].y)),
+                cv::Point(cvRound(projected_vertices[face.v2].x), cvRound(projected_vertices[face.v2].y)),
+            };
+            triangle.color = ShadeColor(base_color, 0.25f + 0.75f * facing);
+            triangle.depth = (v0[2] + v1[2] + v2[2]) / 3.0f;
+            triangles.push_back(triangle);
+        }
+    }
+
+    std::sort(
+        triangles.begin(),
+        triangles.end(),
+        [](const RenderTriangle& lhs, const RenderTriangle& rhs) {
+            return lhs.depth > rhs.depth;
+        });
+
+    for (const auto& triangle : triangles) {
+        const cv::Point polygon[3] = {triangle.points[0], triangle.points[1], triangle.points[2]};
+        cv::fillConvexPoly(canvas, polygon, 3, triangle.color, cv::LINE_AA);
+        if (style.draw_wireframe) {
+            const cv::Point* polygons[] = {polygon};
+            const int polygon_size[] = {3};
+            cv::polylines(canvas, polygons, polygon_size, 1, true, cv::Scalar(15, 15, 15), 1, cv::LINE_AA);
+        }
+    }
+
+    cv::putText(
+        canvas,
+        "Third-person mesh",
+        cv::Point(18, 28),
+        cv::FONT_HERSHEY_SIMPLEX,
+        0.7,
+        cv::Scalar(220, 220, 220),
+        2);
+    return canvas;
 }
 
 }  // namespace newnewhand
