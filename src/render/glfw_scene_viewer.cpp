@@ -93,6 +93,10 @@ std::array<float, 3> Sub(const std::array<float, 3>& a, const std::array<float, 
     return {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
 }
 
+std::array<float, 3> TransformCam0ToWorld(const std::array<float, 3>& p) {
+    return {-p[0], -p[1], p[2]};
+}
+
 }  // namespace
 
 GlfwSceneViewer::GlfwSceneViewer(GlfwSceneViewerConfig config)
@@ -209,8 +213,11 @@ bool GlfwSceneViewer::Render(const StereoFusedHandPoseFrame& frame) {
     if (config_.draw_ground_grid) {
         DrawGroundGrid(0.35f, 0.05f);
     }
-    if (config_.draw_world_axes || config_.draw_cam0_axes) {
-        DrawAxes(config_.axis_length);
+    if (config_.draw_world_axes) {
+        DrawWorldAxes(config_.axis_length);
+    }
+    if (config_.draw_cam0_axes) {
+        DrawCam0Axes(config_.axis_length * 0.85f);
     }
     if (config_.draw_cam0_frustum) {
         DrawCam0Frustum(config_.axis_length * 0.7f);
@@ -286,7 +293,7 @@ void GlfwSceneViewer::SetupProjection() const {
     glFrustum(-right, right, -top, top, near_plane, far_plane);
 }
 
-void GlfwSceneViewer::DrawAxes(float axis_length) const {
+void GlfwSceneViewer::DrawWorldAxes(float axis_length) const {
     glDisable(GL_LIGHTING);
     glLineWidth(2.5f);
     DrawLine({0.0f, 0.0f, 0.0f}, {axis_length, 0.0f, 0.0f}, {1.0f, 0.15f, 0.15f});
@@ -302,6 +309,16 @@ void GlfwSceneViewer::DrawAxes(float axis_length) const {
     glEnable(GL_LIGHTING);
 }
 
+void GlfwSceneViewer::DrawCam0Axes(float axis_length) const {
+    glDisable(GL_LIGHTING);
+    glLineWidth(1.5f);
+    DrawLine({0.0f, 0.0f, 0.0f}, TransformCam0ToWorld({axis_length, 0.0f, 0.0f}), {1.0f, 0.70f, 0.25f});
+    DrawLine({0.0f, 0.0f, 0.0f}, TransformCam0ToWorld({0.0f, axis_length, 0.0f}), {0.45f, 1.0f, 0.45f});
+    DrawLine({0.0f, 0.0f, 0.0f}, TransformCam0ToWorld({0.0f, 0.0f, axis_length}), {0.35f, 0.75f, 1.0f});
+    glLineWidth(1.0f);
+    glEnable(GL_LIGHTING);
+}
+
 void GlfwSceneViewer::DrawCam0Frustum(float scale) const {
     glDisable(GL_LIGHTING);
     const std::array<std::array<float, 3>, 4> plane = {{
@@ -312,10 +329,10 @@ void GlfwSceneViewer::DrawCam0Frustum(float scale) const {
     }};
 
     for (const auto& corner : plane) {
-        DrawLine({0.0f, 0.0f, 0.0f}, corner, {0.80f, 0.80f, 0.15f});
+        DrawLine({0.0f, 0.0f, 0.0f}, TransformCam0ToWorld(corner), {0.80f, 0.80f, 0.15f});
     }
     for (std::size_t i = 0; i < plane.size(); ++i) {
-        DrawLine(plane[i], plane[(i + 1) % plane.size()], {0.80f, 0.80f, 0.15f});
+        DrawLine(TransformCam0ToWorld(plane[i]), TransformCam0ToWorld(plane[(i + 1) % plane.size()]), {0.80f, 0.80f, 0.15f});
     }
     glEnable(GL_LIGHTING);
 }
@@ -350,11 +367,12 @@ void GlfwSceneViewer::DrawHands(const StereoFusedHandPoseFrame& frame) const {
         std::array<std::array<float, 3>, 778> vertices{};
         std::array<std::array<float, 3>, 778> normals{};
         for (int i = 0; i < 778; ++i) {
-            vertices[i] = {
+            const std::array<float, 3> cam_vertex = {
                 hand.pose_cam0.vertices[i][0] + hand.pose_cam0.camera_translation[0],
                 hand.pose_cam0.vertices[i][1] + hand.pose_cam0.camera_translation[1],
                 hand.pose_cam0.vertices[i][2] + hand.pose_cam0.camera_translation[2],
             };
+            vertices[i] = TransformCam0ToWorld(cam_vertex);
             normals[i] = {0.0f, 0.0f, 0.0f};
         }
         for (const auto& face : mano_faces_) {

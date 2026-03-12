@@ -24,7 +24,7 @@ struct GlfwSceneViewerConfig {
     float translation_speed = 0.25f;
     float zoom_speed = 0.6f;
     float axis_length = 0.10f;
-    bool draw_world_axes = true;
+    bool draw_world_axes = false;
     bool draw_cam0_axes = true;
     bool draw_cam0_frustum = true;
     bool draw_ground_grid = true;
@@ -48,7 +48,8 @@ public:
 private:
     void HandleInput(float dt_seconds);
     void SetupProjection() const;
-    void DrawAxes(float axis_length) const;
+    void DrawWorldAxes(float axis_length) const;
+    void DrawCam0Axes(float axis_length) const;
     void DrawCam0Frustum(float scale) const;
     void DrawGroundGrid(float extent, float step) const;
     void DrawHands(const StereoFusedHandPoseFrame& frame) const;
