@@ -19,7 +19,7 @@ struct Detection {
 
 class YoloDetector {
 public:
-    explicit YoloDetector(const std::string& model_path);
+    YoloDetector(const std::string& model_path, bool use_gpu);
 
     std::vector<Detection> Detect(
         const cv::Mat& image,

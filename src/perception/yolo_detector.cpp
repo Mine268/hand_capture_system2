@@ -9,7 +9,7 @@
 
 namespace newnewhand {
 
-YoloDetector::YoloDetector(const std::string& model_path)
+YoloDetector::YoloDetector(const std::string& model_path, bool use_gpu)
     : env_(ORT_LOGGING_LEVEL_WARNING, "newnewhand_yolo"),
       session_(nullptr) {
     if (model_path.empty()) {
@@ -18,6 +18,11 @@ YoloDetector::YoloDetector(const std::string& model_path)
 
     Ort::SessionOptions options;
     options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    if (use_gpu) {
+        OrtCUDAProviderOptions cuda_options;
+        cuda_options.device_id = 0;
+        options.AppendExecutionProvider_CUDA(cuda_options);
+    }
     session_ = Ort::Session(env_, model_path.c_str(), options);
 }
 

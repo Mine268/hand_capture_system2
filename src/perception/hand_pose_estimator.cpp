@@ -57,7 +57,7 @@ void DumpInferenceFailure(
 struct HandPoseEstimator::Impl {
     explicit Impl(HandPoseEstimatorConfig config_in)
         : config(std::move(config_in)),
-          detector(config.detector_model_path),
+          detector(config.detector_model_path, config.use_gpu),
           wilor(
               config.wilor_model_path,
               config.mano_model_path,
