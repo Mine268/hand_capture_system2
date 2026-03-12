@@ -16,12 +16,25 @@
 
 namespace {
 
-constexpr const char* kDefaultDetectorModelPath =
-    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/WiLoR-mini/wilor_mini/pretrained_models/detector.onnx";
-constexpr const char* kDefaultWilorModelPath =
-    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/onnx_model/wilor_backbone_opset16.onnx";
-constexpr const char* kDefaultManoModelPath =
-    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/onnx_model/mano_cpu_opset16.onnx";
+std::string ProjectRoot() {
+#ifdef NEWNEWHAND_PROJECT_ROOT
+    return NEWNEWHAND_PROJECT_ROOT;
+#else
+    return ".";
+#endif
+}
+
+std::string DefaultDetectorModelPath() {
+    return ProjectRoot() + "/resources/models/detector.onnx";
+}
+
+std::string DefaultWilorModelPath() {
+    return ProjectRoot() + "/resources/models/wilor_backbone_opset16.onnx";
+}
+
+std::string DefaultManoModelPath() {
+    return ProjectRoot() + "/resources/models/mano_cpu_opset16.onnx";
+}
 
 struct DemoOptions {
     std::string output_dir = "results/stereo_single_view_pose";
@@ -29,9 +42,9 @@ struct DemoOptions {
     std::string ort_profile_prefix;
     std::string cam0_serial;
     std::string cam1_serial;
-    std::string detector_model_path = kDefaultDetectorModelPath;
-    std::string wilor_model_path = kDefaultWilorModelPath;
-    std::string mano_model_path = kDefaultManoModelPath;
+    std::string detector_model_path = DefaultDetectorModelPath();
+    std::string wilor_model_path = DefaultWilorModelPath();
+    std::string mano_model_path = DefaultManoModelPath();
     float exposure_us = 10000.0f;
     float gain = -1.0f;
     unsigned int fps = 10;
@@ -102,9 +115,9 @@ DemoOptions ParseArgs(int argc, char** argv) {
                 << "  --ort_profile <prefix>    default: disabled\n"
                 << "  --cam0_serial <serial>    default: auto select\n"
                 << "  --cam1_serial <serial>    default: auto select\n"
-                << "  --detector_model <path>   default: " << kDefaultDetectorModelPath << "\n"
-                << "  --wilor_model <path>      default: " << kDefaultWilorModelPath << "\n"
-                << "  --mano_model <path>       default: " << kDefaultManoModelPath << "\n"
+                << "  --detector_model <path>   default: " << DefaultDetectorModelPath() << "\n"
+                << "  --wilor_model <path>      default: " << DefaultWilorModelPath() << "\n"
+                << "  --mano_model <path>       default: " << DefaultManoModelPath() << "\n"
                 << "  --exposure_us <float>     default: 10000\n"
                 << "  --gain <float>            default: -1 (auto)\n"
                 << "  --fps <int>               default: 10\n"

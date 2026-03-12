@@ -11,14 +11,31 @@
 
 namespace {
 
-constexpr const char* kDefaultManoModelPath =
-    "/home/renkaiwen/src/wilor_deploy/wilor_deploy/onnx_model/mano_cpu_opset16.onnx";
+std::string ProjectRoot() {
+#ifdef NEWNEWHAND_PROJECT_ROOT
+    return NEWNEWHAND_PROJECT_ROOT;
+#else
+    return ".";
+#endif
+}
+
+std::string DefaultDetectorModelPath() {
+    return ProjectRoot() + "/resources/models/detector.onnx";
+}
+
+std::string DefaultWilorModelPath() {
+    return ProjectRoot() + "/resources/models/wilor_backbone_opset16.onnx";
+}
+
+std::string DefaultManoModelPath() {
+    return ProjectRoot() + "/resources/models/mano_cpu_opset16.onnx";
+}
 
 struct DemoOptions {
     std::string image_path;
-    std::string detector_model_path;
-    std::string wilor_model_path;
-    std::string mano_model_path = kDefaultManoModelPath;
+    std::string detector_model_path = DefaultDetectorModelPath();
+    std::string wilor_model_path = DefaultWilorModelPath();
+    std::string mano_model_path = DefaultManoModelPath();
     std::string output_path = "output.png";
     bool use_gpu = true;
 };
@@ -51,11 +68,13 @@ DemoOptions ParseArgs(int argc, char** argv) {
             options.use_gpu = false;
         } else if (arg == "--help" || arg == "-h") {
             std::cout
-                << "Usage: single_view_hand_pose_demo --image <path> --detector_model <path> --wilor_model <path> [options]\n"
-                << "  --output <path>   default: output.png\n"
-                << "  --mano_model <path> default: " << kDefaultManoModelPath << "\n"
-                << "  --gpu             default: enabled\n"
-                << "  --cpu             force CPU for WiLoR\n";
+                << "Usage: single_view_hand_pose_demo --image <path> [options]\n"
+                << "  --detector_model <path> default: " << DefaultDetectorModelPath() << "\n"
+                << "  --wilor_model <path>    default: " << DefaultWilorModelPath() << "\n"
+                << "  --mano_model <path>     default: " << DefaultManoModelPath() << "\n"
+                << "  --output <path>         default: output.png\n"
+                << "  --gpu                   default: enabled\n"
+                << "  --cpu                   force CPU for detector/backbone\n";
             std::exit(0);
         } else {
             throw std::runtime_error("unknown argument: " + arg);
@@ -64,12 +83,6 @@ DemoOptions ParseArgs(int argc, char** argv) {
 
     if (options.image_path.empty()) {
         throw std::runtime_error("--image is required");
-    }
-    if (options.detector_model_path.empty()) {
-        throw std::runtime_error("--detector_model is required");
-    }
-    if (options.wilor_model_path.empty()) {
-        throw std::runtime_error("--wilor_model is required");
     }
 
     return options;

@@ -4,6 +4,7 @@ project(newnewhand LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+add_compile_definitions(NEWNEWHAND_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 
 option(BUILD_DEMOS "Build demo executables" ON)
 set(MVS_ROOT "/opt/MVS" CACHE PATH "Hikrobot MVS SDK root directory")
@@ -81,10 +82,6 @@ add_library(newnewhand_visualization STATIC
 target_include_directories(newnewhand_visualization
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-target_compile_definitions(newnewhand_visualization
-    PRIVATE
-        NEWNEWHAND_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 target_link_libraries(newnewhand_visualization
     PUBLIC
