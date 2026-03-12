@@ -97,6 +97,18 @@ std::array<float, 3> TransformCam0ToWorld(const std::array<float, 3>& p) {
     return {-p[0], -p[1], p[2]};
 }
 
+std::array<float, 3> TransformDirectionCam0ToWorld(const std::array<float, 3>& d) {
+    return {-d[0], -d[1], d[2]};
+}
+
+std::array<float, 3> MatVecMul(const cv::Matx33f& matrix, const std::array<float, 3>& v) {
+    return {
+        matrix(0, 0) * v[0] + matrix(0, 1) * v[1] + matrix(0, 2) * v[2],
+        matrix(1, 0) * v[0] + matrix(1, 1) * v[1] + matrix(1, 2) * v[2],
+        matrix(2, 0) * v[0] + matrix(2, 1) * v[1] + matrix(2, 2) * v[2],
+    };
+}
+
 }  // namespace
 
 GlfwSceneViewer::GlfwSceneViewer(GlfwSceneViewerConfig config)
@@ -169,7 +181,7 @@ bool GlfwSceneViewer::Initialize() {
     }
 
     last_frame_time_seconds_ = glfwGetTime();
-    std::cerr << "[glfw] controls: W/S pitch, A/D yaw, Q/E roll, I/K pan Y, J/L pan X, Z/X zoom, ESC close window\n";
+    std::cerr << "[glfw] controls: W/A/S/D move in world XZ, Q/E move in world Y, arrow keys rotate yaw/pitch, U/O roll, Z/X zoom, ESC close window\n";
     return true;
 }
 
@@ -205,10 +217,10 @@ bool GlfwSceneViewer::Render(const StereoFusedHandPoseFrame& frame) {
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     glTranslatef(0.0f, 0.0f, -config_.camera_distance);
-    glTranslatef(config_.pan_x, config_.pan_y, 0.0f);
     glRotatef(config_.roll_degrees, 0.0f, 0.0f, 1.0f);
     glRotatef(config_.pitch_degrees, 1.0f, 0.0f, 0.0f);
     glRotatef(config_.yaw_degrees, 0.0f, 1.0f, 0.0f);
+    glTranslatef(-config_.world_offset_x, -config_.world_offset_y, -config_.world_offset_z);
 
     if (config_.draw_ground_grid) {
         DrawGroundGrid(0.35f, 0.05f);
@@ -221,6 +233,12 @@ bool GlfwSceneViewer::Render(const StereoFusedHandPoseFrame& frame) {
     }
     if (config_.draw_cam0_frustum) {
         DrawCam0Frustum(config_.axis_length * 0.7f);
+    }
+    if (config_.draw_cam1_frustum) {
+        DrawCam1Frustum(config_.axis_length * 0.7f);
+    }
+    if (config_.draw_cam1_axes) {
+        DrawCam1Axes(config_.axis_length * 0.85f);
     }
     if (config_.draw_mesh) {
         DrawHands(frame);
@@ -241,34 +259,40 @@ void GlfwSceneViewer::Shutdown() {
 void GlfwSceneViewer::HandleInput(float dt_seconds) {
     const float delta = config_.angular_speed_degrees * dt_seconds;
     if (glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS) {
-        config_.pitch_degrees += delta;
+        config_.world_offset_z += config_.translation_speed * dt_seconds;
     }
     if (glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS) {
-        config_.pitch_degrees -= delta;
+        config_.world_offset_z -= config_.translation_speed * dt_seconds;
     }
     if (glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS) {
-        config_.yaw_degrees -= delta;
+        config_.world_offset_x -= config_.translation_speed * dt_seconds;
     }
     if (glfwGetKey(window_, GLFW_KEY_D) == GLFW_PRESS) {
-        config_.yaw_degrees += delta;
+        config_.world_offset_x += config_.translation_speed * dt_seconds;
     }
     if (glfwGetKey(window_, GLFW_KEY_Q) == GLFW_PRESS) {
-        config_.roll_degrees -= delta;
+        config_.world_offset_y += config_.translation_speed * dt_seconds;
     }
     if (glfwGetKey(window_, GLFW_KEY_E) == GLFW_PRESS) {
+        config_.world_offset_y -= config_.translation_speed * dt_seconds;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_LEFT) == GLFW_PRESS) {
+        config_.yaw_degrees -= delta;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+        config_.yaw_degrees += delta;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_UP) == GLFW_PRESS) {
+        config_.pitch_degrees += delta;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_DOWN) == GLFW_PRESS) {
+        config_.pitch_degrees -= delta;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_U) == GLFW_PRESS) {
+        config_.roll_degrees -= delta;
+    }
+    if (glfwGetKey(window_, GLFW_KEY_O) == GLFW_PRESS) {
         config_.roll_degrees += delta;
-    }
-    if (glfwGetKey(window_, GLFW_KEY_J) == GLFW_PRESS) {
-        config_.pan_x += config_.translation_speed * dt_seconds;
-    }
-    if (glfwGetKey(window_, GLFW_KEY_L) == GLFW_PRESS) {
-        config_.pan_x -= config_.translation_speed * dt_seconds;
-    }
-    if (glfwGetKey(window_, GLFW_KEY_I) == GLFW_PRESS) {
-        config_.pan_y -= config_.translation_speed * dt_seconds;
-    }
-    if (glfwGetKey(window_, GLFW_KEY_K) == GLFW_PRESS) {
-        config_.pan_y += config_.translation_speed * dt_seconds;
     }
     if (glfwGetKey(window_, GLFW_KEY_Z) == GLFW_PRESS) {
         config_.camera_distance = std::max(0.08f, config_.camera_distance - config_.zoom_speed * dt_seconds);
@@ -310,16 +334,64 @@ void GlfwSceneViewer::DrawWorldAxes(float axis_length) const {
 }
 
 void GlfwSceneViewer::DrawCam0Axes(float axis_length) const {
+    DrawCameraAxes(
+        {0.0f, 0.0f, 0.0f},
+        {{
+            TransformDirectionCam0ToWorld({1.0f, 0.0f, 0.0f}),
+            TransformDirectionCam0ToWorld({0.0f, 1.0f, 0.0f}),
+            TransformDirectionCam0ToWorld({0.0f, 0.0f, 1.0f}),
+        }},
+        axis_length,
+        {1.0f, 0.70f, 0.25f},
+        {0.45f, 1.0f, 0.45f},
+        {0.35f, 0.75f, 1.0f});
+}
+
+void GlfwSceneViewer::DrawCameraAxes(
+    const std::array<float, 3>& center_world,
+    const std::array<std::array<float, 3>, 3>& axes_world,
+    float axis_length,
+    const std::array<float, 3>& color_x,
+    const std::array<float, 3>& color_y,
+    const std::array<float, 3>& color_z) const {
     glDisable(GL_LIGHTING);
     glLineWidth(1.5f);
-    DrawLine({0.0f, 0.0f, 0.0f}, TransformCam0ToWorld({axis_length, 0.0f, 0.0f}), {1.0f, 0.70f, 0.25f});
-    DrawLine({0.0f, 0.0f, 0.0f}, TransformCam0ToWorld({0.0f, axis_length, 0.0f}), {0.45f, 1.0f, 0.45f});
-    DrawLine({0.0f, 0.0f, 0.0f}, TransformCam0ToWorld({0.0f, 0.0f, axis_length}), {0.35f, 0.75f, 1.0f});
+    DrawLine(center_world, {
+        center_world[0] + axes_world[0][0] * axis_length,
+        center_world[1] + axes_world[0][1] * axis_length,
+        center_world[2] + axes_world[0][2] * axis_length,
+    }, color_x);
+    DrawLine(center_world, {
+        center_world[0] + axes_world[1][0] * axis_length,
+        center_world[1] + axes_world[1][1] * axis_length,
+        center_world[2] + axes_world[1][2] * axis_length,
+    }, color_y);
+    DrawLine(center_world, {
+        center_world[0] + axes_world[2][0] * axis_length,
+        center_world[1] + axes_world[2][1] * axis_length,
+        center_world[2] + axes_world[2][2] * axis_length,
+    }, color_z);
     glLineWidth(1.0f);
     glEnable(GL_LIGHTING);
 }
 
 void GlfwSceneViewer::DrawCam0Frustum(float scale) const {
+    DrawCameraFrustum(
+        {0.0f, 0.0f, 0.0f},
+        {{
+            TransformDirectionCam0ToWorld({1.0f, 0.0f, 0.0f}),
+            TransformDirectionCam0ToWorld({0.0f, 1.0f, 0.0f}),
+            TransformDirectionCam0ToWorld({0.0f, 0.0f, 1.0f}),
+        }},
+        scale,
+        {0.80f, 0.80f, 0.15f});
+}
+
+void GlfwSceneViewer::DrawCameraFrustum(
+    const std::array<float, 3>& center_world,
+    const std::array<std::array<float, 3>, 3>& axes_world,
+    float scale,
+    const std::array<float, 3>& color) const {
     glDisable(GL_LIGHTING);
     const std::array<std::array<float, 3>, 4> plane = {{
         {-0.6f * scale, -0.4f * scale, scale},
@@ -329,12 +401,63 @@ void GlfwSceneViewer::DrawCam0Frustum(float scale) const {
     }};
 
     for (const auto& corner : plane) {
-        DrawLine({0.0f, 0.0f, 0.0f}, TransformCam0ToWorld(corner), {0.80f, 0.80f, 0.15f});
+        const std::array<float, 3> world_corner = {
+            center_world[0] + axes_world[0][0] * corner[0] + axes_world[1][0] * corner[1] + axes_world[2][0] * corner[2],
+            center_world[1] + axes_world[0][1] * corner[0] + axes_world[1][1] * corner[1] + axes_world[2][1] * corner[2],
+            center_world[2] + axes_world[0][2] * corner[0] + axes_world[1][2] * corner[1] + axes_world[2][2] * corner[2],
+        };
+        DrawLine(center_world, world_corner, color);
     }
     for (std::size_t i = 0; i < plane.size(); ++i) {
-        DrawLine(TransformCam0ToWorld(plane[i]), TransformCam0ToWorld(plane[(i + 1) % plane.size()]), {0.80f, 0.80f, 0.15f});
+        const auto& a = plane[i];
+        const auto& b = plane[(i + 1) % plane.size()];
+        const std::array<float, 3> world_a = {
+            center_world[0] + axes_world[0][0] * a[0] + axes_world[1][0] * a[1] + axes_world[2][0] * a[2],
+            center_world[1] + axes_world[0][1] * a[0] + axes_world[1][1] * a[1] + axes_world[2][1] * a[2],
+            center_world[2] + axes_world[0][2] * a[0] + axes_world[1][2] * a[1] + axes_world[2][2] * a[2],
+        };
+        const std::array<float, 3> world_b = {
+            center_world[0] + axes_world[0][0] * b[0] + axes_world[1][0] * b[1] + axes_world[2][0] * b[2],
+            center_world[1] + axes_world[0][1] * b[0] + axes_world[1][1] * b[1] + axes_world[2][1] * b[2],
+            center_world[2] + axes_world[0][2] * b[0] + axes_world[1][2] * b[1] + axes_world[2][2] * b[2],
+        };
+        DrawLine(world_a, world_b, color);
     }
     glEnable(GL_LIGHTING);
+}
+
+void GlfwSceneViewer::DrawCam1Axes(float axis_length) const {
+    if (!config_.has_cam1_pose) {
+        return;
+    }
+    const std::array<std::array<float, 3>, 3> axes_world = {{
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {1.0f, 0.0f, 0.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {0.0f, 1.0f, 0.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {0.0f, 0.0f, 1.0f})),
+    }};
+    DrawCameraAxes(
+        TransformCam0ToWorld({config_.cam1_center_cam0[0], config_.cam1_center_cam0[1], config_.cam1_center_cam0[2]}),
+        axes_world,
+        axis_length,
+        {0.85f, 0.35f, 0.35f},
+        {0.35f, 0.90f, 0.35f},
+        {0.35f, 0.60f, 0.95f});
+}
+
+void GlfwSceneViewer::DrawCam1Frustum(float scale) const {
+    if (!config_.has_cam1_pose) {
+        return;
+    }
+    const std::array<std::array<float, 3>, 3> axes_world = {{
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {1.0f, 0.0f, 0.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {0.0f, 1.0f, 0.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {0.0f, 0.0f, 1.0f})),
+    }};
+    DrawCameraFrustum(
+        TransformCam0ToWorld({config_.cam1_center_cam0[0], config_.cam1_center_cam0[1], config_.cam1_center_cam0[2]}),
+        axes_world,
+        scale,
+        {0.35f, 0.85f, 0.95f});
 }
 
 void GlfwSceneViewer::DrawGroundGrid(float extent, float step) const {

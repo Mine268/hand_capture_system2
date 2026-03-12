@@ -156,7 +156,12 @@ int main(int argc, char** argv) {
         fuser_config.require_both_views = true;
         fuser_config.verbose_logging = options.verbose;
         newnewhand::StereoHandFuser fuser(std::move(fuser_config));
-        newnewhand::GlfwSceneViewer viewer;
+        newnewhand::GlfwSceneViewerConfig viewer_config;
+        viewer_config.has_cam1_pose = true;
+        viewer_config.cam1_rotation_cam1_to_cam0 = cv::Matx33f(calibration.rotation).t();
+        const cv::Vec3f translation_01(calibration.translation);
+        viewer_config.cam1_center_cam0 = -(viewer_config.cam1_rotation_cam1_to_cam0 * translation_01);
+        newnewhand::GlfwSceneViewer viewer(viewer_config);
         newnewhand::StereoSingleViewHandPosePipeline pipeline(pipeline_config);
         pipeline.Initialize();
         pipeline.Start();
