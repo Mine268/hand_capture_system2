@@ -38,6 +38,7 @@ struct StereoCalibrationObservation {
 struct StereoCalibrationResult {
     bool success = false;
     cv::Size image_size;
+    CheckerboardConfig checkerboard;
     std::vector<StereoCalibrationObservation> observations;
 
     double left_rms = 0.0;
@@ -65,6 +66,7 @@ public:
 
     StereoCalibrationResult Calibrate(const std::vector<CalibrationImagePair>& image_pairs) const;
     void SaveResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path) const;
+    static StereoCalibrationResult LoadResult(const std::filesystem::path& input_path);
 
     static std::vector<CalibrationImagePair> CollectImagePairs(
         const std::filesystem::path& left_dir,

@@ -108,6 +108,7 @@ target_link_libraries(newnewhand_pipeline
 
 add_library(newnewhand_calibration STATIC
     src/calibration/stereo_calibrator.cpp
+    src/calibration/stereo_calibration_visualizer.cpp
 )
 target_include_directories(newnewhand_calibration
     PUBLIC
@@ -156,6 +157,14 @@ if(BUILD_DEMOS)
         apps/stereo_calibration_app.cpp
     )
     target_link_libraries(stereo_calibration_app
+        PRIVATE
+            newnewhand_calibration
+    )
+
+    add_executable(stereo_calibration_visualize_app
+        apps/stereo_calibration_visualize_app.cpp
+    )
+    target_link_libraries(stereo_calibration_visualize_app
         PRIVATE
             newnewhand_calibration
     )

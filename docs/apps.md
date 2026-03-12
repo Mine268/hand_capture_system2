@@ -74,3 +74,14 @@ Example:
   --square_size 0.024 \
   --output results/stereo_calibration.yaml
 ```
+
+### `stereo_calibration_visualize_app`
+
+Loads a calibration YAML and renders a third-person scene with `cam0`, `cam1`, and the reconstructed checkerboard poses.
+
+```bash
+./build/stereo_calibration_visualize_app \
+  --calibration results/stereo_calibration.yaml \
+  --output results/stereo_calibration_scene.png \
+  --draw_ids
+```

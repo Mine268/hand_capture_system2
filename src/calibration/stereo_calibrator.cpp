@@ -58,6 +58,7 @@ StereoCalibrationResult StereoCalibrator::Calibrate(const std::vector<Calibratio
     }
 
     StereoCalibrationResult result;
+    result.checkerboard = config_.checkerboard;
     std::vector<std::vector<cv::Point3f>> object_points;
     std::vector<std::vector<cv::Point2f>> image_points_left;
     std::vector<std::vector<cv::Point2f>> image_points_right;
@@ -210,6 +211,51 @@ void StereoCalibrator::SaveResult(const StereoCalibrationResult& result, const s
         fs << "}";
     }
     fs << "]";
+}
+
+StereoCalibrationResult StereoCalibrator::LoadResult(const std::filesystem::path& input_path) {
+    cv::FileStorage fs(input_path.string(), cv::FileStorage::READ);
+    if (!fs.isOpened()) {
+        throw std::runtime_error("failed to open calibration input file: " + input_path.string());
+    }
+
+    StereoCalibrationResult result;
+    result.success = true;
+    fs["image_width"] >> result.image_size.width;
+    fs["image_height"] >> result.image_size.height;
+    fs["checkerboard_inner_corners_cols"] >> result.checkerboard.inner_corners_cols;
+    fs["checkerboard_inner_corners_rows"] >> result.checkerboard.inner_corners_rows;
+    fs["checkerboard_square_size"] >> result.checkerboard.square_size;
+    fs["left_rms"] >> result.left_rms;
+    fs["right_rms"] >> result.right_rms;
+    fs["stereo_rms"] >> result.stereo_rms;
+    fs["left_camera_matrix"] >> result.left_camera_matrix;
+    fs["right_camera_matrix"] >> result.right_camera_matrix;
+    fs["left_dist_coeffs"] >> result.left_dist_coeffs;
+    fs["right_dist_coeffs"] >> result.right_dist_coeffs;
+    fs["rotation"] >> result.rotation;
+    fs["translation"] >> result.translation;
+    fs["essential"] >> result.essential;
+    fs["fundamental"] >> result.fundamental;
+    fs["rectification_left"] >> result.rectification_left;
+    fs["rectification_right"] >> result.rectification_right;
+    fs["projection_left"] >> result.projection_left;
+    fs["projection_right"] >> result.projection_right;
+    fs["disparity_to_depth"] >> result.disparity_to_depth;
+
+    cv::FileNode valid_pairs = fs["valid_pairs"];
+    for (const auto& node : valid_pairs) {
+        StereoCalibrationObservation observation;
+        std::string left_path;
+        std::string right_path;
+        node["left_path"] >> left_path;
+        node["right_path"] >> right_path;
+        observation.image_pair.left_path = left_path;
+        observation.image_pair.right_path = right_path;
+        result.observations.push_back(std::move(observation));
+    }
+
+    return result;
 }
 
 std::vector<CalibrationImagePair> StereoCalibrator::CollectImagePairs(

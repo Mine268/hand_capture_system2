@@ -4,6 +4,7 @@ cmake-build-*/
 *.swo
 .DS_Store
 captures/
+captures_calib/
 results/
 output.png
 results*.png

@@ -58,3 +58,20 @@ Optional:
 - `--debug_dir <dir>` saves checkerboard detection overlays
 - `--preview` shows corner detection windows
 - `--no_use_sb` switches from `findChessboardCornersSB` to the classic corner detector
+
+## Pose visualization
+
+You can also visualize the relative positions of:
+
+- `cam0`
+- `cam1`
+- each reconstructed checkerboard pose
+
+Use:
+
+```bash
+./build/stereo_calibration_visualize_app \
+  --calibration results/stereo_calibration.yaml \
+  --output results/stereo_calibration_scene.png \
+  --draw_ids
+```
