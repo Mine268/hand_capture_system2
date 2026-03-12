@@ -32,9 +32,9 @@ Use `stereo_single_view_hand_pose_demo` for real capture + per-view pose estimat
 
 Current default models:
 
-- detector: `WiLoR-mini/wilor_mini/pretrained_models/detector.onnx`
-- WiLoR backbone: `onnx_model/wilor_backbone_opset16.onnx`
-- MANO CPU: `onnx_model/mano_cpu_opset16.onnx`
+- detector: `resources/models/detector.onnx`
+- WiLoR backbone: `resources/models/wilor_backbone_opset16.onnx`
+- MANO CPU: `resources/models/mano_cpu_opset16.onnx`
 
 Useful flags:
 

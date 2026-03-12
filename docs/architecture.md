@@ -46,9 +46,11 @@ Implemented:
 - step 1 capture layer
 - step 2 single-view WiLoR perception
 - stereo single-view runtime integration
-- 2D overlay, MANO mesh overlay, and third-person preview
-- initial step 3 stereo checkerboard calibration application
-- initial GLFW + OpenGL interactive scene viewer start
+- 2D overlay and MANO mesh overlay on captured images
+- step 3 stereo checkerboard calibration application
+- stereo calibration pose visualization
+- step 4 initial stereo fusion in the `cam0` frame
+- GLFW + OpenGL interactive scene viewer for fused 3D inspection
 
 Current application entry points:
 
@@ -56,3 +58,5 @@ Current application entry points:
 - `single_view_hand_pose_demo`
 - `stereo_single_view_hand_pose_demo`
 - `stereo_calibration_app`
+- `stereo_calibration_visualize_app`
+- `stereo_fused_hand_pose_demo`

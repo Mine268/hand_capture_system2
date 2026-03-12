@@ -64,7 +64,7 @@ Notes:
 
 ### `stereo_single_view_hand_pose_demo`
 
-Runs stereo capture, per-view single-view hand pose estimation, original-image overlays, and third-person mesh preview.
+Runs stereo capture, per-view single-view hand pose estimation, and original-image overlays.
 
 Example:
 
@@ -141,11 +141,17 @@ Notes:
 - `--calibration <yaml>` is required
 - OpenCV windows still show the per-view overlay images
 - a GLFW + OpenGL window renders the fused hand mesh in the `cam0` coordinate frame
+- the OpenGL scene currently shows:
+  - `cam0` at the origin
+  - `cam0` axes
+  - `cam0` frustum
+  - calibrated `cam1` axes and frustum
+  - fused hand mesh in the `cam0` frame
 - controls in the GLFW window:
-  - `W/S`: pitch
-  - `A/D`: yaw
-  - `Q/E`: roll
-  - `I/K`: move scene up/down in view
-  - `J/L`: move scene left/right in view
+  - `W/S`: move in world `Z`
+  - `A/D`: move in world `X`
+  - `Q/E`: move in world `Y`
+  - arrow keys: yaw / pitch
+  - `U/O`: roll
   - `Z/X`: zoom in/out
 - use `--no_glfw_view` to disable the GLFW renderer
