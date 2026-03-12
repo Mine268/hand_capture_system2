@@ -2,16 +2,57 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include <opencv2/imgcodecs.hpp>
 
 #include "hand_pose_utils.h"
 #include "wilor_model.h"
 #include "yolo_detector.h"
 
 namespace newnewhand {
+
+namespace {
+
+std::uint64_t NextFailureDumpId() {
+    static std::atomic_uint64_t counter{0};
+    return ++counter;
+}
+
+void DumpInferenceFailure(
+    const HandPoseEstimatorConfig& config,
+    const cv::Mat& full_image,
+    const cv::Mat& patch,
+    const HandDetection& detection,
+    const std::string& error_message) {
+    if (config.debug_dump_dir.empty()) {
+        return;
+    }
+
+    const std::uint64_t dump_id = NextFailureDumpId();
+    const std::filesystem::path root = std::filesystem::path(config.debug_dump_dir)
+        / ("failure_" + std::to_string(dump_id));
+    std::filesystem::create_directories(root);
+
+    cv::imwrite((root / "full_image.png").string(), full_image);
+    cv::imwrite((root / "patch.png").string(), patch);
+
+    std::ofstream meta(root / "meta.txt");
+    meta << "confidence=" << detection.confidence << "\n";
+    meta << "is_right=" << (detection.is_right ? 1 : 0) << "\n";
+    meta << "bbox=" << detection.bbox[0] << "," << detection.bbox[1] << ","
+         << detection.bbox[2] << "," << detection.bbox[3] << "\n";
+    meta << "error=" << error_message << "\n";
+}
+
+}  // namespace
 
 struct HandPoseEstimator::Impl {
     explicit Impl(HandPoseEstimatorConfig config_in)
@@ -118,15 +159,25 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
         patches.push_back(patch);
     }
 
-    const WilorOutput wilor_output = impl_->wilor.Infer(patches);
     const float scaled_focal_length =
         impl_->config.focal_length / static_cast<float>(impl_->config.patch_size) * image_extent;
 
     std::vector<HandPoseResult> results;
     results.reserve(hand_crops.size());
+    std::vector<std::string> inference_errors;
 
     for (int hand_index = 0; hand_index < static_cast<int>(hand_crops.size()); ++hand_index) {
         const HandCropInfo& hand_crop = hand_crops[hand_index];
+        const cv::Mat& patch = patches[hand_index];
+
+        WilorOutput wilor_output;
+        try {
+            wilor_output = impl_->wilor.Infer({patch});
+        } catch (const std::exception& ex) {
+            DumpInferenceFailure(impl_->config, bgr_image, patch, hand_crop.detection, ex.what());
+            inference_errors.push_back(ex.what());
+            continue;
+        }
 
         HandPoseResult result;
         result.detection = hand_crop.detection;
@@ -135,9 +186,9 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
         result.crop_size = hand_crop.bbox_size;
 
         float pred_cam[3] = {
-            wilor_output.pred_cam[hand_index * 3 + 0],
-            wilor_output.pred_cam[hand_index * 3 + 1],
-            wilor_output.pred_cam[hand_index * 3 + 2],
+            wilor_output.pred_cam[0],
+            wilor_output.pred_cam[1],
+            wilor_output.pred_cam[2],
         };
 
         if (!hand_crop.detection.is_right) {
@@ -146,23 +197,23 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
 
         std::memcpy(
             result.vertices,
-            wilor_output.pred_vertices.data() + hand_index * 778 * 3,
+            wilor_output.pred_vertices.data(),
             sizeof(float) * 778 * 3);
         std::memcpy(
             result.keypoints_3d,
-            wilor_output.pred_keypoints_3d.data() + hand_index * 21 * 3,
+            wilor_output.pred_keypoints_3d.data(),
             sizeof(float) * 21 * 3);
         std::memcpy(
             result.global_orient,
-            wilor_output.global_orient.data() + hand_index * 3,
+            wilor_output.global_orient.data(),
             sizeof(float) * 3);
         std::memcpy(
             result.hand_pose,
-            wilor_output.hand_pose.data() + hand_index * 15 * 3,
+            wilor_output.hand_pose.data(),
             sizeof(float) * 15 * 3);
         std::memcpy(
             result.betas,
-            wilor_output.betas.data() + hand_index * 10,
+            wilor_output.betas.data(),
             sizeof(float) * 10);
         std::memcpy(result.pred_cam, pred_cam, sizeof(pred_cam));
 
@@ -203,6 +254,10 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
         std::memcpy(result.keypoints_2d, flat_keypoints_2d, sizeof(float) * 21 * 2);
 
         results.push_back(result);
+    }
+
+    if (results.empty() && !inference_errors.empty()) {
+        throw std::runtime_error(inference_errors.front());
     }
 
     return results;
