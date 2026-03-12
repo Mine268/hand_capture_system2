@@ -4,29 +4,12 @@
 #include <stdexcept>
 #include <string>
 
-#include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgproc.hpp>
 
 #include "newnewhand/perception/hand_pose_estimator.h"
+#include "newnewhand/visualization/hand_pose_overlay.h"
 
 namespace {
-
-constexpr int kHandConnections[20][2] = {
-    {0, 1}, {1, 2}, {2, 3}, {3, 4},
-    {0, 5}, {5, 6}, {6, 7}, {7, 8},
-    {0, 9}, {9, 10}, {10, 11}, {11, 12},
-    {0, 13}, {13, 14}, {14, 15}, {15, 16},
-    {0, 17}, {17, 18}, {18, 19}, {19, 20},
-};
-
-const cv::Scalar kFingerColors[5] = {
-    cv::Scalar(255, 0, 0),
-    cv::Scalar(0, 255, 0),
-    cv::Scalar(0, 0, 255),
-    cv::Scalar(255, 255, 0),
-    cv::Scalar(255, 0, 255),
-};
 
 struct DemoOptions {
     std::string image_path;
@@ -84,53 +67,6 @@ DemoOptions ParseArgs(int argc, char** argv) {
 
     return options;
 }
-
-void DrawResults(cv::Mat& image, const std::vector<newnewhand::HandPoseResult>& results) {
-    for (const auto& result : results) {
-        cv::rectangle(
-            image,
-            cv::Point(static_cast<int>(result.detection.bbox[0]), static_cast<int>(result.detection.bbox[1])),
-            cv::Point(static_cast<int>(result.detection.bbox[2]), static_cast<int>(result.detection.bbox[3])),
-            cv::Scalar(0, 255, 0),
-            2);
-        const std::string label = result.detection.is_right ? "R" : "L";
-        cv::putText(
-            image,
-            label,
-            cv::Point(static_cast<int>(result.detection.bbox[0]), static_cast<int>(result.detection.bbox[1]) - 5),
-            cv::FONT_HERSHEY_SIMPLEX,
-            0.7,
-            cv::Scalar(0, 255, 0),
-            2);
-
-        for (int connection_index = 0; connection_index < 20; ++connection_index) {
-            const int start_joint = kHandConnections[connection_index][0];
-            const int end_joint = kHandConnections[connection_index][1];
-            cv::line(
-                image,
-                cv::Point(
-                    static_cast<int>(result.keypoints_2d[start_joint][0]),
-                    static_cast<int>(result.keypoints_2d[start_joint][1])),
-                cv::Point(
-                    static_cast<int>(result.keypoints_2d[end_joint][0]),
-                    static_cast<int>(result.keypoints_2d[end_joint][1])),
-                kFingerColors[connection_index / 4],
-                2);
-        }
-
-        for (int joint_index = 0; joint_index < 21; ++joint_index) {
-            cv::circle(
-                image,
-                cv::Point(
-                    static_cast<int>(result.keypoints_2d[joint_index][0]),
-                    static_cast<int>(result.keypoints_2d[joint_index][1])),
-                3,
-                cv::Scalar(0, 0, 255),
-                -1);
-        }
-    }
-}
-
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -164,8 +100,7 @@ int main(int argc, char** argv) {
                   << " ms\n";
         std::cout << "Detected hands: " << results.size() << "\n";
 
-        cv::Mat visualization = image.clone();
-        DrawResults(visualization, results);
+        cv::Mat visualization = newnewhand::RenderHandPoseOverlay(image, results);
         cv::imwrite(options.output_path, visualization);
         std::cout << "Saved visualization: " << options.output_path << "\n";
 

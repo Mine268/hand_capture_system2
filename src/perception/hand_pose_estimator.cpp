@@ -42,10 +42,33 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
         throw std::invalid_argument("input image must not be empty");
     }
 
-    const auto detections = impl_->detector.Detect(
+    const auto raw_detections = impl_->detector.Detect(
         bgr_image,
         impl_->config.detection_confidence_threshold,
         impl_->config.detection_nms_threshold);
+
+    const float image_width = static_cast<float>(bgr_image.cols);
+    const float image_height = static_cast<float>(bgr_image.rows);
+    const float image_extent = std::max(image_width, image_height);
+
+    std::vector<Detection> detections;
+    detections.reserve(raw_detections.size());
+    for (const auto& detection : raw_detections) {
+        Detection clamped = detection;
+        clamped.x1 = std::clamp(clamped.x1, 0.0f, image_width - 1.0f);
+        clamped.y1 = std::clamp(clamped.y1, 0.0f, image_height - 1.0f);
+        clamped.x2 = std::clamp(clamped.x2, 0.0f, image_width - 1.0f);
+        clamped.y2 = std::clamp(clamped.y2, 0.0f, image_height - 1.0f);
+
+        const float bbox_width = clamped.x2 - clamped.x1;
+        const float bbox_height = clamped.y2 - clamped.y1;
+        if (bbox_width < 8.0f || bbox_height < 8.0f) {
+            continue;
+        }
+
+        detections.push_back(clamped);
+    }
+
     if (detections.empty()) {
         return {};
     }
@@ -56,10 +79,6 @@ std::vector<HandPoseResult> HandPoseEstimator::Predict(const cv::Mat& bgr_image)
         float center_y = 0.0f;
         float bbox_size = 0.0f;
     };
-
-    const float image_width = static_cast<float>(bgr_image.cols);
-    const float image_height = static_cast<float>(bgr_image.rows);
-    const float image_extent = std::max(image_width, image_height);
 
     std::vector<HandCropInfo> hand_crops;
     std::vector<cv::Mat> patches;

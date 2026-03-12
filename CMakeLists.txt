@@ -75,6 +75,33 @@ set_target_properties(newnewhand_perception PROPERTIES
     BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib"
 )
 
+add_library(newnewhand_visualization STATIC
+    src/visualization/hand_pose_overlay.cpp
+)
+target_include_directories(newnewhand_visualization
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(newnewhand_visualization
+    PUBLIC
+        ${OpenCV_LIBS}
+        newnewhand_perception
+)
+
+add_library(newnewhand_pipeline STATIC
+    src/pipeline/stereo_single_view_hand_pose_pipeline.cpp
+)
+target_include_directories(newnewhand_pipeline
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(newnewhand_pipeline
+    PUBLIC
+        newnewhand_capture
+        newnewhand_perception
+        newnewhand_visualization
+)
+
 if(BUILD_DEMOS)
     add_executable(stereo_capture_demo
         apps/stereo_capture_demo.cpp
@@ -92,9 +119,20 @@ if(BUILD_DEMOS)
     )
     target_link_libraries(single_view_hand_pose_demo
         PRIVATE
-            newnewhand_perception
+            newnewhand_visualization
     )
     set_target_properties(single_view_hand_pose_demo PROPERTIES
         BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib"
+    )
+
+    add_executable(stereo_single_view_hand_pose_demo
+        apps/stereo_single_view_hand_pose_demo.cpp
+    )
+    target_link_libraries(stereo_single_view_hand_pose_demo
+        PRIVATE
+            newnewhand_pipeline
+    )
+    set_target_properties(stereo_single_view_hand_pose_demo PROPERTIES
+        BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib;${MVS_ROOT}/lib/64"
     )
 endif()
