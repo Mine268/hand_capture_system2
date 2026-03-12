@@ -4,6 +4,19 @@
 
 This step integrates WiLoR-based single-view hand pose estimation into the main C++ project.
 
+## Current runtime split
+
+The current implementation can run in two modes:
+
+- legacy single-model WiLoR ONNX
+- split WiLoR backbone ONNX + CPU MANO ONNX
+
+The current demos are configured for the split mode:
+
+- GPU/CPU selectable detector
+- GPU/CPU selectable WiLoR backbone parameter regression
+- CPU MANO mesh/joint generation
+
 ## Public API
 
 - `newnewhand::HandPoseEstimator`
@@ -15,8 +28,9 @@ This step integrates WiLoR-based single-view hand pose estimation into the main 
 1. `YoloDetector` detects hand boxes and handedness on the full image.
 2. Each hand crop is anti-aliased, affine-warped to `256x256`, and flipped when the hand is left.
 3. `WilorModel` runs ONNX inference per crop.
-4. Output is mirrored back for left hands.
-5. `camera_translation` and projected `keypoints_2d` are reconstructed in full-image coordinates.
+4. If the model only returns MANO parameters, a separate CPU MANO ONNX session generates `pred_keypoints_3d` and `pred_vertices`.
+5. Output is mirrored back for left hands.
+6. `camera_translation` and projected `keypoints_2d` are reconstructed in full-image coordinates.
 
 ## Output fields retained for later steps
 

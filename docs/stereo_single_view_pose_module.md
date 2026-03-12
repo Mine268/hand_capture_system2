@@ -6,8 +6,10 @@ This module connects the existing stereo capture layer and the single-view WiLoR
 
 1. Trigger stereo capture.
 2. For camera `0` and camera `1`, run single-view hand pose estimation independently.
-3. Project the predicted 3D joints back to 2D image coordinates.
-4. Draw 2D skeletons, joints, handedness labels, and bounding boxes on each original image.
+3. Keep at most one left hand and one right hand per image, choosing the largest bbox for each handedness.
+4. Project the predicted 3D joints back to 2D image coordinates.
+5. Draw MANO mesh, 2D skeletons, joints, handedness labels, and bounding boxes on each original image.
+6. Optionally render a third-person mesh preview window.
 
 ## Main API
 
@@ -23,7 +25,20 @@ This module connects the existing stereo capture layer and the single-view WiLoR
 - original per-camera frame metadata
 - per-camera `HandPoseResult` list
 - per-camera overlay image
+- per-camera third-person mesh image
 
 ## Demo
 
 Use `stereo_single_view_hand_pose_demo` for real capture + per-view pose estimation + overlay preview/save.
+
+Current default models:
+
+- detector: `WiLoR-mini/wilor_mini/pretrained_models/detector.onnx`
+- WiLoR backbone: `onnx_model/wilor_backbone_opset16.onnx`
+- MANO CPU: `onnx_model/mano_cpu_opset16.onnx`
+
+Useful flags:
+
+- `--gpu` / `--cpu`
+- `--third_person` / `--no_third_person`
+- `--ort_profile <prefix>`

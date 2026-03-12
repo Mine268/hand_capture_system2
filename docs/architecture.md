@@ -36,12 +36,19 @@ The intended runtime pipeline is:
 4. fusion resolves root pose and stores the final result
 5. render optionally visualizes the current frame and pose
 
-## Step 1 status
+## Current status
 
-Step 1 implements the `capture` layer with these design constraints:
+Implemented:
 
-- camera `0` and camera `1` are explicitly ordered, preferably by serial number
-- the capture library returns owning `cv::Mat` images in BGR format for downstream OpenCV and ONNX code
-- the synchronization mechanism is internal to the capture module
-- preview and disk saving live only in the demo executable, not in the library
-- the public API is RAII-based C++ instead of a global singleton plus C ABI
+- step 1 capture layer
+- step 2 single-view WiLoR perception
+- stereo single-view runtime integration
+- 2D overlay, MANO mesh overlay, and third-person preview
+- initial step 3 stereo checkerboard calibration application
+
+Current application entry points:
+
+- `stereo_capture_demo`
+- `single_view_hand_pose_demo`
+- `stereo_single_view_hand_pose_demo`
+- `stereo_calibration_app`

@@ -106,6 +106,18 @@ target_link_libraries(newnewhand_pipeline
         newnewhand_visualization
 )
 
+add_library(newnewhand_calibration STATIC
+    src/calibration/stereo_calibrator.cpp
+)
+target_include_directories(newnewhand_calibration
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(newnewhand_calibration
+    PUBLIC
+        ${OpenCV_LIBS}
+)
+
 if(BUILD_DEMOS)
     add_executable(stereo_capture_demo
         apps/stereo_capture_demo.cpp
@@ -138,5 +150,13 @@ if(BUILD_DEMOS)
     )
     set_target_properties(stereo_single_view_hand_pose_demo PROPERTIES
         BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib;${MVS_ROOT}/lib/64"
+    )
+
+    add_executable(stereo_calibration_app
+        apps/stereo_calibration_app.cpp
+    )
+    target_link_libraries(stereo_calibration_app
+        PRIVATE
+            newnewhand_calibration
     )
 endif()
