@@ -8,187 +8,191 @@ checkerboard_square_size: 0.02500000037252903
 left_camera_serial_number: "00J78371761"
 right_camera_serial_number: "00J78371888"
 num_valid_pairs: 30
-left_rms: 0.69635776957648676
-right_rms: 0.7590169287459706
-stereo_rms: 1.6380409958218645
+left_rms: 0.2829598863647928
+right_rms: 0.13017379676944521
+stereo_rms: 2.3423904705365604
 left_camera_matrix: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 1213.7417656364605, 0., 703.84854841321703, 0.,
-       1210.3601866152853, 567.81500315728726, 0., 0., 1. ]
+   data: [ 1017.5103201006675, 0., 738.43559857483001, 0.,
+       1016.6972619635244, 566.56098655802828, 0., 0., 1. ]
 right_camera_matrix: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 1146.8404972173075, 0., 663.67798281210275, 0.,
-       1202.9436133123586, 580.42730828644312, 0., 0., 1. ]
+   data: [ 1034.4240475707682, 0., 730.37320745500983, 0.,
+       1034.282345122258, 573.51173772691629, 0., 0., 1. ]
 left_dist_coeffs: !!opencv-matrix
    rows: 5
    cols: 1
    dt: d
-   data: [ -0.3245444176854822, -0.021845473682995987,
-       -0.010481342804647709, 0.01930744478512746, 0.66510104773018641 ]
+   data: [ -0.14021367507929805, 0.10607301613348408,
+       -0.00025764941569964922, 0.001825192684639353,
+       -0.0266765348685058 ]
 right_dist_coeffs: !!opencv-matrix
    rows: 5
    cols: 1
    dt: d
-   data: [ -0.36325084214626396, 0.1145214827350816,
-       0.0042215734103284736, 0.07570775827967248, 0.17118600374730195 ]
+   data: [ -0.14904444376767273, 0.11936726225433011,
+       -0.00050963278094399956, -0.00062381676869710404,
+       -0.035870688872656251 ]
 rotation: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 0.95143870900811256, 0.059608106066069581,
-       0.30201201415207379, -0.050760540462597113, 0.99802274490277998,
-       -0.037067076883207817, -0.30362435760808337, 0.019936758711906911,
-       0.95258321165089932 ]
+   data: [ 0.94389493412612568, 0.052687336023219088,
+       0.32601594739186168, -0.041845986272238019, 0.99831569153741884,
+       -0.040183248538026808, -0.32758398429096069, 0.02428630587268403,
+       0.944509877440738 ]
 translation: !!opencv-matrix
    rows: 3
    cols: 1
    dt: d
-   data: [ -0.19066261905835871, 0.016011072113437903,
-       0.039507938949698521 ]
+   data: [ -0.19977211614024118, 0.013176723347878668,
+       0.038996581295782817 ]
 essential: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ -0.0028559071514092926, -0.039110612794585019,
-       0.016716322306338384, -0.020300432801596387,
-       0.0061561880469121529, 0.1935538822215789, -0.0055554161920285932,
-       -0.19124002010774555, 0.0022317698216764645 ]
+   data: [ -0.0026846331286302792, -0.038610885090268277,
+       0.014012554672717201, -0.028633470222129719,
+       0.0069063526999029456, 0.20140024432788448,
+       -0.0040777811868636452, -0.20012988472515308,
+       0.003731670648051741 ]
 fundamental: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 8.6358145386042553e-08, 1.1859476272037904e-06,
-       -0.0013476984229318766, 5.852241906300301e-07,
-       -1.779674250442305e-07, -0.0070832964616840566,
-       -0.0002043397407577191, 0.0059666852177913607, 1. ]
+   data: [ 8.701645019056638e-08, 1.2524873357333514e-06,
+       -0.0012360054410815069, 9.282178147722538e-07,
+       -2.2406387180939196e-07, -0.0072016434939238877,
+       -0.00045917612556914053, 0.0059291549071584845,
+       0.99999999999999989 ]
 rectification_left: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 0.99407291507446016, -0.027650277464841725,
-       0.10514039029546289, 0.028789932687623563, 0.99954187638429204,
-       -0.0093368693902556501, -0.10483405597041025,
-       0.012308513731797767, 0.99441355642333595 ]
+   data: [ 0.98980809736937569, -0.017532841080303629,
+       0.1413242012737711, 0.019397414287588937, 0.99974190119085871,
+       -0.011826720688455829, -0.14108036965138768, 0.01444750798372943,
+       0.98989272086023949 ]
 rectification_right: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 0.97590493134836287, -0.081952531171806162,
-       -0.20222103650333015, 0.084152807843310085, 0.99645022502675784,
-       0.0022921553635259395, 0.20131534939500756, -0.019254393749421315,
-       0.97933722405477286 ]
+   data: [ 0.97942503354219979, -0.064601671926589915,
+       -0.19118898413650839, 0.06712715901594965, 0.99772155957110464,
+       0.0067553008408097756, 0.19031696769680898, -0.019450284092827053,
+       0.98152999865281765 ]
 projection_left: !!opencv-matrix
    rows: 3
    cols: 4
    dt: d
-   data: [ 1206.651899963822, 0., 887.77095413208008, 0., 0.,
-       1206.651899963822, 585.04476547241211, 0., 0., 0., 1., 0. ]
+   data: [ 1025.4898035428912, 0., 778.74199676513672, 0., 0.,
+       1025.4898035428912, 578.03053283691406, 0., 0., 0., 1., 0. ]
 projection_right: !!opencv-matrix
    rows: 3
    cols: 4
    dt: d
-   data: [ 1206.651899963822, 0., 887.77095413208008,
-       -235.74367148752788, 0., 1206.651899963822, 585.04476547241211,
+   data: [ 1025.4898035428912, 0., 778.74199676513672,
+       -209.1678904643565, 0., 1025.4898035428912, 578.03053283691406,
        0., 0., 0., 1., 0. ]
 disparity_to_depth: !!opencv-matrix
    rows: 4
    cols: 4
    dt: d
-   data: [ 1., 0., 0., -887.77095413208008, 0., 1., 0.,
-       -585.04476547241211, 0., 0., 0., 1206.651899963822, 0., 0.,
-       5.118491166061526, 0. ]
+   data: [ 1., 0., 0., -778.74199676513672, 0., 1., 0.,
+       -578.03053283691406, 0., 0., 0., 1025.4898035428912, 0., 0.,
+       4.9027114117099195, 0. ]
 valid_pairs:
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000001.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000001.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000001.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000001.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000002.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000002.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000002.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000002.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000003.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000003.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000003.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000003.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000004.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000004.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000004.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000004.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000005.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000005.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000005.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000005.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000006.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000006.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000006.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000006.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000007.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000007.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000007.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000007.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000008.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000008.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000008.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000008.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000009.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000009.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000009.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000009.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000010.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000010.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000010.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000010.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000011.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000011.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000011.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000011.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000012.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000012.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000012.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000012.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000013.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000013.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000013.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000013.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000014.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000014.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000014.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000014.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000015.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000015.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000015.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000015.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000016.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000016.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000016.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000016.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000017.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000017.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000017.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000017.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000018.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000018.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000018.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000018.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000019.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000019.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000019.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000019.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000020.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000020.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000020.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000020.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000021.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000021.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000021.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000021.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000022.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000022.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000022.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000022.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000023.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000023.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000023.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000023.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000024.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000024.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000024.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000024.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000025.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000025.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000025.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000025.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000026.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000026.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000026.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000026.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000027.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000027.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000027.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000027.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000028.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000028.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000028.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000028.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000029.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000029.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000029.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000029.bmp"
    -
-      left_path: "resources/stereo_calibration_capture_20260319_143503/left/000030.bmp"
-      right_path: "resources/stereo_calibration_capture_20260319_143503/right/000030.bmp"
+      left_path: "resources/stereo_calibration_capture_20260319_192639/stereo_left/000030.bmp"
+      right_path: "resources/stereo_calibration_capture_20260319_192639/stereo_right/000030.bmp"

@@ -58,6 +58,7 @@ Notes:
 - default output directory is `resources/markers/`
 - the generator writes both a raw PNG and a `_print.svg` sheet for printing
 - the first localization demo version defaults to `DICT_APRILTAG_36h11`
+- sample generated marker files can be kept under `resources/markers/` for repeatable printing
 
 ### `stereo_charuco_board_generator`
 
@@ -79,6 +80,7 @@ Notes:
 - default output directory is `resources/charuco/`
 - use the same board parameters later in `stereo_charuco_localization_demo`
 - the generator also includes a 100 mm print-check ruler on the SVG page
+- sample generated ChArUco boards can be kept under `resources/charuco/` for repeatable experiments
 
 ### `stereo_aruco_localization_demo`
 
