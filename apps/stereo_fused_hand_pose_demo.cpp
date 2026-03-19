@@ -19,6 +19,7 @@
 #include "newnewhand/fusion/stereo_hand_fuser.h"
 #include "newnewhand/io/offline_sequence_writer.h"
 #include "newnewhand/render/glfw_scene_viewer.h"
+#include "newnewhand/slam/stereo_visual_odometry.h"
 
 namespace {
 
@@ -61,11 +62,13 @@ struct DemoOptions {
     bool use_gpu = true;
     bool verbose = true;
     bool glfw_view = true;
+    bool slam = false;
 };
 
 struct LatestFrameData {
     newnewhand::StereoSingleViewPoseFrame stereo_frame;
     newnewhand::StereoFusedHandPoseFrame fused_frame;
+    newnewhand::StereoCameraTrackingResult tracking_result;
 };
 
 struct SharedWorkerState {
@@ -105,6 +108,8 @@ DemoOptions ParseArgs(int argc, char** argv) {
         else if (arg == "--no_save") options.save = false;
         else if (arg == "--glfw_view") options.glfw_view = true;
         else if (arg == "--no_glfw_view") options.glfw_view = false;
+        else if (arg == "--slam") options.slam = true;
+        else if (arg == "--no_slam") options.slam = false;
         else if (arg == "--gpu") options.use_gpu = true;
         else if (arg == "--cpu") options.use_gpu = false;
         else if (arg == "--verbose") options.verbose = true;
@@ -121,6 +126,7 @@ DemoOptions ParseArgs(int argc, char** argv) {
                 << "  --save | --no_save        default: --save\n"
                 << "  --preview | --no_preview  default: --preview\n"
                 << "  --glfw_view | --no_glfw_view  default: --glfw_view\n"
+                << "  --slam | --no_slam        default: --no_slam\n"
                 << "  --verbose | --quiet       default: --verbose\n"
                 << "  --gpu | --cpu             default: --gpu\n";
             std::exit(0);
@@ -152,6 +158,54 @@ void SaveFusedYaml(
     fuser.SaveFrame(frame, root / "yaml" / name.str());
 }
 
+void ApplyCalibrationSerialsToCaptureConfig(
+    const DemoOptions& options,
+    const newnewhand::StereoCalibrationResult& calibration,
+    newnewhand::StereoSingleViewHandPosePipelineConfig& pipeline_config) {
+    const bool has_saved_serials =
+        !calibration.left_camera_serial_number.empty() && !calibration.right_camera_serial_number.empty();
+    if (!has_saved_serials) {
+        pipeline_config.capture_config.serial_numbers = {options.cam0_serial, options.cam1_serial};
+        return;
+    }
+
+    if (!options.cam0_serial.empty() && options.cam0_serial != calibration.left_camera_serial_number) {
+        throw std::runtime_error(
+            "requested --cam0_serial does not match calibration left_camera_serial_number");
+    }
+    if (!options.cam1_serial.empty() && options.cam1_serial != calibration.right_camera_serial_number) {
+        throw std::runtime_error(
+            "requested --cam1_serial does not match calibration right_camera_serial_number");
+    }
+
+    pipeline_config.capture_config.serial_numbers = {
+        calibration.left_camera_serial_number,
+        calibration.right_camera_serial_number,
+    };
+}
+
+void ValidateActiveCamerasAgainstCalibration(
+    const std::array<newnewhand::CameraDescriptor, 2>& active_cameras,
+    const newnewhand::StereoCalibrationResult& calibration) {
+    const bool has_saved_serials =
+        !calibration.left_camera_serial_number.empty() && !calibration.right_camera_serial_number.empty();
+    if (!has_saved_serials) {
+        return;
+    }
+
+    if (active_cameras[0].serial_number != calibration.left_camera_serial_number
+        || active_cameras[1].serial_number != calibration.right_camera_serial_number) {
+        std::ostringstream oss;
+        oss
+            << "active stereo serials do not match calibration yaml: expected left="
+            << calibration.left_camera_serial_number
+            << " right=" << calibration.right_camera_serial_number
+            << " but got cam0=" << active_cameras[0].serial_number
+            << " cam1=" << active_cameras[1].serial_number;
+        throw std::runtime_error(oss.str());
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -159,7 +213,6 @@ int main(int argc, char** argv) {
         const DemoOptions options = ParseArgs(argc, argv);
 
         newnewhand::StereoSingleViewHandPosePipelineConfig pipeline_config;
-        pipeline_config.capture_config.serial_numbers = {options.cam0_serial, options.cam1_serial};
         pipeline_config.capture_config.camera_settings.exposure_us = options.exposure_us;
         pipeline_config.capture_config.camera_settings.gain = options.gain;
         pipeline_config.pose_config.detector_model_path = options.detector_model_path;
@@ -170,6 +223,7 @@ int main(int argc, char** argv) {
         pipeline_config.pose_config.use_gpu = options.use_gpu;
 
         const auto calibration = newnewhand::StereoCalibrator::LoadResult(options.calibration_path);
+        ApplyCalibrationSerialsToCaptureConfig(options, calibration, pipeline_config);
         newnewhand::StereoHandFuserConfig fuser_config;
         fuser_config.calibration = calibration;
         fuser_config.require_both_views = true;
@@ -208,8 +262,16 @@ int main(int argc, char** argv) {
                 }
 
                 newnewhand::StereoSingleViewHandPosePipeline pipeline(pipeline_config);
+                std::unique_ptr<newnewhand::StereoVisualOdometry> slam_tracker;
+                if (options.slam) {
+                    newnewhand::StereoVisualOdometryConfig slam_config;
+                    slam_config.calibration = calibration;
+                    slam_config.verbose_logging = options.verbose;
+                    slam_tracker = std::make_unique<newnewhand::StereoVisualOdometry>(std::move(slam_config));
+                }
                 pipeline.Initialize();
                 pipeline.Start();
+                ValidateActiveCamerasAgainstCalibration(pipeline.ActiveCameras(), calibration);
 
                 try {
                     for (int frame_count = 0; options.frames < 0 || frame_count < options.frames; ++frame_count) {
@@ -248,6 +310,10 @@ int main(int argc, char** argv) {
                         }
 
                         auto fused_frame = fuser.Fuse(stereo_frame);
+                        newnewhand::StereoCameraTrackingResult tracking_result;
+                        if (slam_tracker) {
+                            tracking_result = slam_tracker->Track(stereo_frame);
+                        }
                         std::cout
                             << "capture=" << fused_frame.capture_index
                             << " fused_hands=" << fused_frame.hands.size() << "\n";
@@ -255,6 +321,7 @@ int main(int argc, char** argv) {
                         auto latest_frame = std::make_shared<LatestFrameData>();
                         latest_frame->stereo_frame = stereo_frame;
                         latest_frame->fused_frame = fused_frame;
+                        latest_frame->tracking_result = tracking_result;
                         {
                             std::lock_guard<std::mutex> lock(shared_state.mutex);
                             shared_state.latest_frame = std::move(latest_frame);
@@ -320,7 +387,9 @@ int main(int argc, char** argv) {
 
             if (options.glfw_view) {
                 const auto& fused_frame = latest_frame ? latest_frame->fused_frame : empty_fused_frame;
-                if (!viewer.Render(fused_frame)) {
+                const newnewhand::StereoCameraTrackingResult* tracking_result =
+                    latest_frame ? &latest_frame->tracking_result : nullptr;
+                if (!viewer.Render(fused_frame, tracking_result)) {
                     std::cerr << "[app] GLFW viewer closed by user\n";
                     stop_requested.store(true);
                     break;
@@ -338,6 +407,64 @@ int main(int argc, char** argv) {
                                 cv::Size(),
                                 0.5,
                                 0.5);
+                            std::ostringstream slam_text;
+                            slam_text
+                                << "slam "
+                                << (latest_frame->tracking_result.initialized
+                                        ? (latest_frame->tracking_result.tracking_ok ? "ok" : "hold")
+                                        : "init")
+                                << " kp=" << latest_frame->tracking_result.left_keypoints
+                                << " stereo=" << latest_frame->tracking_result.stereo_points
+                                << " match=" << latest_frame->tracking_result.matched_points
+                                << " inlier=" << latest_frame->tracking_result.tracking_inliers;
+                            cv::putText(
+                                preview,
+                                slam_text.str(),
+                                cv::Point(16, 28),
+                                cv::FONT_HERSHEY_SIMPLEX,
+                                0.55,
+                                cv::Scalar(40, 220, 255),
+                                2);
+                            if (!latest_frame->tracking_result.status_message.empty()) {
+                                std::ostringstream slam_detail_text;
+                                slam_detail_text
+                                    << "disp_kp=" << latest_frame->tracking_result.valid_disparity_keypoints
+                                    << " nan=" << latest_frame->tracking_result.invalid_nonfinite_disparity
+                                    << " low=" << latest_frame->tracking_result.invalid_low_disparity
+                                    << " depth=" << latest_frame->tracking_result.invalid_depth;
+                                cv::putText(
+                                    preview,
+                                    slam_detail_text.str(),
+                                    cv::Point(16, 54),
+                                    cv::FONT_HERSHEY_SIMPLEX,
+                                    0.5,
+                                    cv::Scalar(40, 220, 255),
+                                    1);
+                                cv::putText(
+                                    preview,
+                                    latest_frame->tracking_result.status_message,
+                                    cv::Point(16, 78),
+                                    cv::FONT_HERSHEY_SIMPLEX,
+                                    0.5,
+                                    cv::Scalar(40, 220, 255),
+                                    1);
+                            }
+                            if (latest_frame->tracking_result.initialized) {
+                                std::ostringstream slam_pose_text;
+                                slam_pose_text
+                                    << "xyz=("
+                                    << latest_frame->tracking_result.camera_center_world[0] << ", "
+                                    << latest_frame->tracking_result.camera_center_world[1] << ", "
+                                    << latest_frame->tracking_result.camera_center_world[2] << ")";
+                                cv::putText(
+                                    preview,
+                                    slam_pose_text.str(),
+                                    cv::Point(16, 102),
+                                    cv::FONT_HERSHEY_SIMPLEX,
+                                    0.5,
+                                    cv::Scalar(40, 220, 255),
+                                    1);
+                            }
                             cv::imshow("fused_pose_cam" + std::to_string(i), preview);
                         }
                     }

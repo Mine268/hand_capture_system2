@@ -60,6 +60,8 @@ void WriteCalibrationResultFile(
     fs << "checkerboard_inner_corners_cols" << result.checkerboard.inner_corners_cols;
     fs << "checkerboard_inner_corners_rows" << result.checkerboard.inner_corners_rows;
     fs << "checkerboard_square_size" << result.checkerboard.square_size;
+    fs << "left_camera_serial_number" << result.left_camera_serial_number;
+    fs << "right_camera_serial_number" << result.right_camera_serial_number;
     fs << "num_valid_pairs" << static_cast<int>(result.observations.size());
     fs << "left_rms" << result.left_rms;
     fs << "right_rms" << result.right_rms;
@@ -238,6 +240,12 @@ StereoCalibrationResult StereoCalibrator::LoadResult(const std::filesystem::path
     fs["checkerboard_inner_corners_cols"] >> result.checkerboard.inner_corners_cols;
     fs["checkerboard_inner_corners_rows"] >> result.checkerboard.inner_corners_rows;
     fs["checkerboard_square_size"] >> result.checkerboard.square_size;
+    if (!fs["left_camera_serial_number"].empty()) {
+        fs["left_camera_serial_number"] >> result.left_camera_serial_number;
+    }
+    if (!fs["right_camera_serial_number"].empty()) {
+        fs["right_camera_serial_number"] >> result.right_camera_serial_number;
+    }
     fs["left_rms"] >> result.left_rms;
     fs["right_rms"] >> result.right_rms;
     fs["stereo_rms"] >> result.stereo_rms;
@@ -268,6 +276,14 @@ StereoCalibrationResult StereoCalibrator::LoadResult(const std::filesystem::path
     }
 
     return result;
+}
+
+bool StereoCalibrator::DetectStereoCorners(
+    const cv::Mat& left_image,
+    const cv::Mat& right_image,
+    std::vector<cv::Point2f>& left_corners,
+    std::vector<cv::Point2f>& right_corners) const {
+    return DetectCorners(left_image, right_image, left_corners, right_corners);
 }
 
 std::vector<CalibrationImagePair> StereoCalibrator::CollectImagePairs(

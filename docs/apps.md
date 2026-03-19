@@ -87,6 +87,24 @@ Important options:
 
 ## Stereo calibration
 
+### `stereo_guided_calibration_app`
+
+Interactive guided stereo calibration from live cameras.
+
+Example:
+
+```bash
+./build/stereo_guided_calibration_app \
+  --output resources/stereo_calibration.yaml
+```
+
+Workflow:
+
+- preview the two live views and press `1` if `cam0` is physical left, or `2` if `cam1` is physical left
+- enter checkerboard inner-corner cols, rows, and square size in the terminal
+- capture 30 valid checkerboard pairs at 5 FPS
+- save calibration parameters plus `left_camera_serial_number` and `right_camera_serial_number` into one YAML
+
 ### `stereo_calibration_app`
 
 Runs stereo checkerboard calibration from paired images in two directories.
@@ -111,6 +129,7 @@ Notes:
 - `--use_sb` is default and preferred
 - `--no_use_sb` falls back to the classic detector
 - `--preview` opens checkerboard corner preview windows
+- use `stereo_guided_calibration_app` when the physical left/right order is not known in advance
 
 ### `stereo_calibration_visualize_app`
 
@@ -140,6 +159,8 @@ Runs stereo capture, per-view hand pose estimation, and fuses the hand pose into
 Notes:
 
 - `--calibration <yaml>` is required
+- if the calibration YAML contains `left_camera_serial_number` and `right_camera_serial_number`, capture order is forced to those serials
+- if the active hardware serials do not match the YAML, runtime stops before pose estimation and SLAM
 - `--offline_dump_dir <dir>` optionally exports raw stereo views, overlays, calibration, mono results and fused results
 - OpenCV windows still show the per-view overlay images
 - a GLFW + OpenGL window renders the fused hand mesh in the `cam0` coordinate frame

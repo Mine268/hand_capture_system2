@@ -8,6 +8,7 @@
 #include <opencv2/core/types.hpp>
 
 #include "newnewhand/fusion/stereo_hand_fuser.h"
+#include "newnewhand/slam/stereo_visual_odometry.h"
 
 struct GLFWwindow;
 
@@ -34,6 +35,8 @@ struct GlfwSceneViewerConfig {
     bool draw_cam1_axes = true;
     bool draw_cam1_frustum = true;
     bool draw_ground_grid = true;
+    bool draw_slam_origin_axes = true;
+    bool draw_slam_trajectory = true;
     bool draw_mesh = true;
     bool draw_wireframe = false;
 
@@ -52,7 +55,9 @@ public:
 
     bool Initialize();
     bool IsOpen() const;
-    bool Render(const StereoFusedHandPoseFrame& frame);
+    bool Render(
+        const StereoFusedHandPoseFrame& frame,
+        const StereoCameraTrackingResult* tracking = nullptr);
     void Shutdown();
 
 private:
@@ -75,8 +80,16 @@ private:
         const std::array<float, 3>& color) const;
     void DrawCam1Axes(float axis_length) const;
     void DrawCam1Frustum(float scale) const;
+    void DrawTrackedCam0Axes(const StereoCameraTrackingResult& tracking, float axis_length) const;
+    void DrawTrackedCam0Frustum(const StereoCameraTrackingResult& tracking, float scale) const;
+    void DrawTrackedCam1Axes(const StereoCameraTrackingResult& tracking, float axis_length) const;
+    void DrawTrackedCam1Frustum(const StereoCameraTrackingResult& tracking, float scale) const;
+    void DrawSlamOriginAxes(float axis_length) const;
+    void DrawSlamTrajectory(const StereoCameraTrackingResult& tracking) const;
     void DrawGroundGrid(float extent, float step) const;
-    void DrawHands(const StereoFusedHandPoseFrame& frame) const;
+    void DrawHands(
+        const StereoFusedHandPoseFrame& frame,
+        const StereoCameraTrackingResult* tracking) const;
     bool LoadManoFaces();
 
     GlfwSceneViewerConfig config_;

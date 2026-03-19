@@ -39,6 +39,8 @@ struct StereoCalibrationResult {
     bool success = false;
     cv::Size image_size;
     CheckerboardConfig checkerboard;
+    std::string left_camera_serial_number;
+    std::string right_camera_serial_number;
     std::vector<StereoCalibrationObservation> observations;
 
     double left_rms = 0.0;
@@ -68,6 +70,11 @@ public:
     void SaveResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path) const;
     static void SaveLoadedResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path);
     static StereoCalibrationResult LoadResult(const std::filesystem::path& input_path);
+    bool DetectStereoCorners(
+        const cv::Mat& left_image,
+        const cv::Mat& right_image,
+        std::vector<cv::Point2f>& left_corners,
+        std::vector<cv::Point2f>& right_corners) const;
 
     static std::vector<CalibrationImagePair> CollectImagePairs(
         const std::filesystem::path& left_dir,

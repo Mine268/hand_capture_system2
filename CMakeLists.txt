@@ -124,6 +124,20 @@ target_link_libraries(newnewhand_fusion
         ${OpenCV_LIBS}
 )
 
+add_library(newnewhand_slam STATIC
+    src/slam/stereo_visual_odometry.cpp
+)
+target_include_directories(newnewhand_slam
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(newnewhand_slam
+    PUBLIC
+        newnewhand_pipeline
+        newnewhand_calibration
+        ${OpenCV_LIBS}
+)
+
 add_library(newnewhand_io STATIC
     src/io/offline_sequence_writer.cpp
 )
@@ -212,6 +226,19 @@ if(BUILD_DEMOS)
             newnewhand_calibration
     )
 
+    add_executable(stereo_guided_calibration_app
+        apps/stereo_guided_calibration_app.cpp
+    )
+    target_link_libraries(stereo_guided_calibration_app
+        PRIVATE
+            newnewhand_capture
+            newnewhand_calibration
+            ${OpenCV_LIBS}
+    )
+    set_target_properties(stereo_guided_calibration_app PROPERTIES
+        BUILD_RPATH "${MVS_ROOT}/lib/64"
+    )
+
     add_executable(stereo_calibration_visualize_app
         apps/stereo_calibration_visualize_app.cpp
     )
@@ -226,6 +253,7 @@ if(BUILD_DEMOS)
     target_link_libraries(stereo_fused_hand_pose_demo
         PRIVATE
             newnewhand_fusion
+            newnewhand_slam
             newnewhand_render_glfw
             newnewhand_io
     )

@@ -101,12 +101,31 @@ std::array<float, 3> TransformDirectionCam0ToWorld(const std::array<float, 3>& d
     return {-d[0], -d[1], d[2]};
 }
 
+std::array<float, 3> TransformSlamWorldToViewerWorld(const std::array<float, 3>& p) {
+    return {-p[0], -p[1], p[2]};
+}
+
+std::array<float, 3> TransformSlamDirectionToViewerWorld(const std::array<float, 3>& d) {
+    return {-d[0], -d[1], d[2]};
+}
+
 std::array<float, 3> MatVecMul(const cv::Matx33f& matrix, const std::array<float, 3>& v) {
     return {
         matrix(0, 0) * v[0] + matrix(0, 1) * v[1] + matrix(0, 2) * v[2],
         matrix(1, 0) * v[0] + matrix(1, 1) * v[1] + matrix(1, 2) * v[2],
         matrix(2, 0) * v[0] + matrix(2, 1) * v[1] + matrix(2, 2) * v[2],
     };
+}
+
+cv::Vec3f MatVecMul(const cv::Matx33f& matrix, const cv::Vec3f& v) {
+    return cv::Vec3f(
+        matrix(0, 0) * v[0] + matrix(0, 1) * v[1] + matrix(0, 2) * v[2],
+        matrix(1, 0) * v[0] + matrix(1, 1) * v[1] + matrix(1, 2) * v[2],
+        matrix(2, 0) * v[0] + matrix(2, 1) * v[1] + matrix(2, 2) * v[2]);
+}
+
+std::array<float, 3> ToArray(const cv::Vec3f& v) {
+    return {v[0], v[1], v[2]};
 }
 
 }  // namespace
@@ -189,7 +208,9 @@ bool GlfwSceneViewer::IsOpen() const {
     return window_ != nullptr && glfwWindowShouldClose(window_) == GLFW_FALSE;
 }
 
-bool GlfwSceneViewer::Render(const StereoFusedHandPoseFrame& frame) {
+bool GlfwSceneViewer::Render(
+    const StereoFusedHandPoseFrame& frame,
+    const StereoCameraTrackingResult* tracking) {
     if (!window_ && !Initialize()) {
         return false;
     }
@@ -222,26 +243,46 @@ bool GlfwSceneViewer::Render(const StereoFusedHandPoseFrame& frame) {
     glRotatef(config_.yaw_degrees, 0.0f, 1.0f, 0.0f);
     glTranslatef(-config_.world_offset_x, -config_.world_offset_y, -config_.world_offset_z);
 
+    const bool use_tracked_world = tracking != nullptr && tracking->initialized;
+
     if (config_.draw_ground_grid) {
         DrawGroundGrid(0.35f, 0.05f);
     }
     if (config_.draw_world_axes) {
         DrawWorldAxes(config_.axis_length);
     }
-    if (config_.draw_cam0_axes) {
+    if (!use_tracked_world && config_.draw_cam0_axes) {
         DrawCam0Axes(config_.axis_length * 0.85f);
     }
-    if (config_.draw_cam0_frustum) {
+    if (!use_tracked_world && config_.draw_cam0_frustum) {
         DrawCam0Frustum(config_.axis_length * 0.7f);
     }
-    if (config_.draw_cam1_frustum) {
+    if (!use_tracked_world && config_.draw_cam1_frustum) {
         DrawCam1Frustum(config_.axis_length * 0.7f);
     }
-    if (config_.draw_cam1_axes) {
+    if (!use_tracked_world && config_.draw_cam1_axes) {
         DrawCam1Axes(config_.axis_length * 0.85f);
     }
+    if (use_tracked_world && config_.draw_slam_origin_axes) {
+        DrawSlamOriginAxes(config_.axis_length);
+    }
+    if (use_tracked_world && config_.draw_cam0_axes) {
+        DrawTrackedCam0Axes(*tracking, config_.axis_length * 0.85f);
+    }
+    if (use_tracked_world && config_.draw_cam0_frustum) {
+        DrawTrackedCam0Frustum(*tracking, config_.axis_length * 0.7f);
+    }
+    if (use_tracked_world && config_.draw_cam1_axes) {
+        DrawTrackedCam1Axes(*tracking, config_.axis_length * 0.85f);
+    }
+    if (use_tracked_world && config_.draw_cam1_frustum) {
+        DrawTrackedCam1Frustum(*tracking, config_.axis_length * 0.7f);
+    }
+    if (use_tracked_world && config_.draw_slam_trajectory) {
+        DrawSlamTrajectory(*tracking);
+    }
     if (config_.draw_mesh) {
-        DrawHands(frame);
+        DrawHands(frame, tracking);
     }
 
     glfwSwapBuffers(window_);
@@ -431,9 +472,9 @@ void GlfwSceneViewer::DrawCam1Axes(float axis_length) const {
         return;
     }
     const std::array<std::array<float, 3>, 3> axes_world = {{
-        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {1.0f, 0.0f, 0.0f})),
-        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {0.0f, 1.0f, 0.0f})),
-        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {0.0f, 0.0f, 1.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, std::array<float, 3>{1.0f, 0.0f, 0.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, std::array<float, 3>{0.0f, 1.0f, 0.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, std::array<float, 3>{0.0f, 0.0f, 1.0f})),
     }};
     DrawCameraAxes(
         TransformCam0ToWorld({config_.cam1_center_cam0[0], config_.cam1_center_cam0[1], config_.cam1_center_cam0[2]}),
@@ -449,15 +490,127 @@ void GlfwSceneViewer::DrawCam1Frustum(float scale) const {
         return;
     }
     const std::array<std::array<float, 3>, 3> axes_world = {{
-        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {1.0f, 0.0f, 0.0f})),
-        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {0.0f, 1.0f, 0.0f})),
-        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, {0.0f, 0.0f, 1.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, std::array<float, 3>{1.0f, 0.0f, 0.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, std::array<float, 3>{0.0f, 1.0f, 0.0f})),
+        TransformDirectionCam0ToWorld(MatVecMul(config_.cam1_rotation_cam1_to_cam0, std::array<float, 3>{0.0f, 0.0f, 1.0f})),
     }};
     DrawCameraFrustum(
         TransformCam0ToWorld({config_.cam1_center_cam0[0], config_.cam1_center_cam0[1], config_.cam1_center_cam0[2]}),
         axes_world,
         scale,
         {0.35f, 0.85f, 0.95f});
+}
+
+void GlfwSceneViewer::DrawTrackedCam0Axes(
+    const StereoCameraTrackingResult& tracking,
+    float axis_length) const {
+    const std::array<std::array<float, 3>, 3> axes_world = {{
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(tracking.rotation_world_from_cam0, cv::Vec3f(1.0f, 0.0f, 0.0f)))),
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(tracking.rotation_world_from_cam0, cv::Vec3f(0.0f, 1.0f, 0.0f)))),
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(tracking.rotation_world_from_cam0, cv::Vec3f(0.0f, 0.0f, 1.0f)))),
+    }};
+    DrawCameraAxes(
+        TransformSlamWorldToViewerWorld(ToArray(tracking.camera_center_world)),
+        axes_world,
+        axis_length,
+        {1.0f, 0.70f, 0.25f},
+        {0.45f, 1.0f, 0.45f},
+        {0.35f, 0.75f, 1.0f});
+}
+
+void GlfwSceneViewer::DrawTrackedCam0Frustum(
+    const StereoCameraTrackingResult& tracking,
+    float scale) const {
+    const std::array<std::array<float, 3>, 3> axes_world = {{
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(tracking.rotation_world_from_cam0, cv::Vec3f(1.0f, 0.0f, 0.0f)))),
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(tracking.rotation_world_from_cam0, cv::Vec3f(0.0f, 1.0f, 0.0f)))),
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(tracking.rotation_world_from_cam0, cv::Vec3f(0.0f, 0.0f, 1.0f)))),
+    }};
+    DrawCameraFrustum(
+        TransformSlamWorldToViewerWorld(ToArray(tracking.camera_center_world)),
+        axes_world,
+        scale,
+        {0.80f, 0.80f, 0.15f});
+}
+
+void GlfwSceneViewer::DrawTrackedCam1Axes(
+    const StereoCameraTrackingResult& tracking,
+    float axis_length) const {
+    if (!config_.has_cam1_pose) {
+        return;
+    }
+    const cv::Matx33f rotation_world_from_cam1 =
+        tracking.rotation_world_from_cam0 * config_.cam1_rotation_cam1_to_cam0;
+    const cv::Vec3f cam1_center_world =
+        MatVecMul(tracking.rotation_world_from_cam0, config_.cam1_center_cam0)
+        + tracking.camera_center_world;
+    const std::array<std::array<float, 3>, 3> axes_world = {{
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(rotation_world_from_cam1, cv::Vec3f(1.0f, 0.0f, 0.0f)))),
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(rotation_world_from_cam1, cv::Vec3f(0.0f, 1.0f, 0.0f)))),
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(rotation_world_from_cam1, cv::Vec3f(0.0f, 0.0f, 1.0f)))),
+    }};
+    DrawCameraAxes(
+        TransformSlamWorldToViewerWorld(ToArray(cam1_center_world)),
+        axes_world,
+        axis_length,
+        {0.85f, 0.35f, 0.35f},
+        {0.35f, 0.90f, 0.35f},
+        {0.35f, 0.60f, 0.95f});
+}
+
+void GlfwSceneViewer::DrawTrackedCam1Frustum(
+    const StereoCameraTrackingResult& tracking,
+    float scale) const {
+    if (!config_.has_cam1_pose) {
+        return;
+    }
+    const cv::Matx33f rotation_world_from_cam1 =
+        tracking.rotation_world_from_cam0 * config_.cam1_rotation_cam1_to_cam0;
+    const cv::Vec3f cam1_center_world =
+        MatVecMul(tracking.rotation_world_from_cam0, config_.cam1_center_cam0)
+        + tracking.camera_center_world;
+    const std::array<std::array<float, 3>, 3> axes_world = {{
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(rotation_world_from_cam1, cv::Vec3f(1.0f, 0.0f, 0.0f)))),
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(rotation_world_from_cam1, cv::Vec3f(0.0f, 1.0f, 0.0f)))),
+        TransformSlamDirectionToViewerWorld(ToArray(MatVecMul(rotation_world_from_cam1, cv::Vec3f(0.0f, 0.0f, 1.0f)))),
+    }};
+    DrawCameraFrustum(
+        TransformSlamWorldToViewerWorld(ToArray(cam1_center_world)),
+        axes_world,
+        scale,
+        {0.35f, 0.85f, 0.95f});
+}
+
+void GlfwSceneViewer::DrawSlamOriginAxes(float axis_length) const {
+    const std::array<std::array<float, 3>, 3> axes_world = {{
+        TransformSlamDirectionToViewerWorld({1.0f, 0.0f, 0.0f}),
+        TransformSlamDirectionToViewerWorld({0.0f, 1.0f, 0.0f}),
+        TransformSlamDirectionToViewerWorld({0.0f, 0.0f, 1.0f}),
+    }};
+    DrawCameraAxes(
+        TransformSlamWorldToViewerWorld({0.0f, 0.0f, 0.0f}),
+        axes_world,
+        axis_length,
+        {0.95f, 0.25f, 0.25f},
+        {0.25f, 0.95f, 0.25f},
+        {0.25f, 0.60f, 1.0f});
+}
+
+void GlfwSceneViewer::DrawSlamTrajectory(const StereoCameraTrackingResult& tracking) const {
+    if (tracking.trajectory_world.size() < 2) {
+        return;
+    }
+    glDisable(GL_LIGHTING);
+    glLineWidth(2.0f);
+    glColor3f(1.0f, 0.85f, 0.20f);
+    glBegin(GL_LINE_STRIP);
+    for (const auto& center_world : tracking.trajectory_world) {
+        const auto point_viewer = TransformSlamWorldToViewerWorld(ToArray(center_world));
+        glVertex3f(point_viewer[0], point_viewer[1], point_viewer[2]);
+    }
+    glEnd();
+    glLineWidth(1.0f);
+    glEnable(GL_LIGHTING);
 }
 
 void GlfwSceneViewer::DrawGroundGrid(float extent, float step) const {
@@ -477,11 +630,14 @@ void GlfwSceneViewer::DrawGroundGrid(float extent, float step) const {
     glEnable(GL_LIGHTING);
 }
 
-void GlfwSceneViewer::DrawHands(const StereoFusedHandPoseFrame& frame) const {
+void GlfwSceneViewer::DrawHands(
+    const StereoFusedHandPoseFrame& frame,
+    const StereoCameraTrackingResult* tracking) const {
     if (mano_faces_.empty()) {
         return;
     }
 
+    const bool use_tracked_world = tracking != nullptr && tracking->initialized;
     for (const auto& hand : frame.hands) {
         const std::array<float, 3> base = hand.is_right
             ? std::array<float, 3>{0.95f, 0.70f, 0.20f}
@@ -495,7 +651,14 @@ void GlfwSceneViewer::DrawHands(const StereoFusedHandPoseFrame& frame) const {
                 hand.pose_cam0.vertices[i][1] + hand.pose_cam0.camera_translation[1],
                 hand.pose_cam0.vertices[i][2] + hand.pose_cam0.camera_translation[2],
             };
-            vertices[i] = TransformCam0ToWorld(cam_vertex);
+            if (use_tracked_world) {
+                const cv::Vec3f vertex_world =
+                    MatVecMul(tracking->rotation_world_from_cam0, cv::Vec3f(cam_vertex[0], cam_vertex[1], cam_vertex[2]))
+                    + tracking->camera_center_world;
+                vertices[i] = TransformSlamWorldToViewerWorld(ToArray(vertex_world));
+            } else {
+                vertices[i] = TransformCam0ToWorld(cam_vertex);
+            }
             normals[i] = {0.0f, 0.0f, 0.0f};
         }
         for (const auto& face : mano_faces_) {

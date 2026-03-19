@@ -43,7 +43,7 @@ const cv::Scalar kFingerColors[5] = {
 };
 
 cv::Scalar HandMeshBaseColor(bool is_right) {
-    return is_right ? cv::Scalar(255, 190, 40) : cv::Scalar(220, 90, 255);
+    return is_right ? cv::Scalar(51, 179, 242) : cv::Scalar(242, 89, 209);
 }
 
 std::string DefaultManoFacePath() {
