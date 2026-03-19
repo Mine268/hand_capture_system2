@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <vector>
@@ -34,9 +35,12 @@ struct StereoHandFuserConfig {
     bool require_both_views = true;
     bool verbose_logging = true;
     bool enable_root_kalman = true;
-    float root_process_noise = 1e-3f;
-    float root_measurement_noise = 4e-4f;
-    float root_initial_error = 1e-2f;
+    float root_process_noise = 5e-2f;
+    float root_measurement_noise = 7e-4f;
+    float root_initial_error = 5e-2f;
+    float root_min_dt_seconds = 1e-3f;
+    float root_max_dt_seconds = 0.20f;
+    float temporal_reset_seconds = 1.0f;
     int temporal_reset_frames = 20;
 };
 
@@ -51,6 +55,7 @@ private:
     struct RootFilterState {
         bool initialized = false;
         int missing_frames = 0;
+        std::chrono::steady_clock::time_point last_timestamp;
         cv::KalmanFilter filter;
     };
 
@@ -60,8 +65,12 @@ private:
         const cv::Point2f& point1) const;
     void ProjectToView0(HandPoseResult& pose) const;
     void TransformView1PoseToView0(HandPoseResult& pose) const;
-    cv::Vec3f FilterRoot(cv::Vec3f root_joint_cam0, bool is_right);
-    void MarkMissing(bool is_right);
+    void UpdateFilterModel(RootFilterState& state, float dt_seconds) const;
+    cv::Vec3f FilterRoot(
+        cv::Vec3f root_joint_cam0,
+        bool is_right,
+        std::chrono::steady_clock::time_point timestamp);
+    void MarkMissing(bool is_right, std::chrono::steady_clock::time_point timestamp);
 
     StereoHandFuserConfig config_;
     std::array<RootFilterState, 2> root_filters_;

@@ -45,6 +45,10 @@ std::string FormatPoint(const cv::Point2f& point) {
     return oss.str();
 }
 
+float ClampDtSeconds(float dt_seconds, float min_dt_seconds, float max_dt_seconds) {
+    return std::clamp(dt_seconds, min_dt_seconds, max_dt_seconds);
+}
+
 }  // namespace
 
 StereoHandFuser::StereoHandFuser(StereoHandFuserConfig config)
@@ -55,21 +59,14 @@ StereoHandFuser::StereoHandFuser(StereoHandFuserConfig config)
 
     for (auto& state : root_filters_) {
         state.filter.init(6, 3, 0, CV_32F);
-        state.filter.transitionMatrix = (cv::Mat_<float>(6, 6) <<
-            1, 0, 0, 1, 0, 0,
-            0, 1, 0, 0, 1, 0,
-            0, 0, 1, 0, 0, 1,
-            0, 0, 0, 1, 0, 0,
-            0, 0, 0, 0, 1, 0,
-            0, 0, 0, 0, 0, 1);
         state.filter.measurementMatrix = (cv::Mat_<float>(3, 6) <<
             1, 0, 0, 0, 0, 0,
             0, 1, 0, 0, 0, 0,
             0, 0, 1, 0, 0, 0);
-        cv::setIdentity(state.filter.processNoiseCov, cv::Scalar::all(config_.root_process_noise));
         cv::setIdentity(state.filter.measurementNoiseCov, cv::Scalar::all(config_.root_measurement_noise));
         cv::setIdentity(state.filter.errorCovPost, cv::Scalar::all(config_.root_initial_error));
         cv::setIdentity(state.filter.errorCovPre, cv::Scalar::all(config_.root_initial_error));
+        UpdateFilterModel(state, config_.root_max_dt_seconds);
     }
 }
 
@@ -154,7 +151,7 @@ FusedHandPose StereoHandFuser::FuseHandByHandedness(const StereoSingleViewPoseFr
     }
 
     if (!view0 || !view1) {
-        MarkMissing(is_right);
+        MarkMissing(is_right, frame.trigger_timestamp);
         if (config_.verbose_logging && config_.require_both_views) {
             std::cerr
                 << "[fusion] skip handedness=" << (is_right ? "right" : "left")
@@ -167,7 +164,7 @@ FusedHandPose StereoHandFuser::FuseHandByHandedness(const StereoSingleViewPoseFr
     const cv::Vec3f triangulated_root = TriangulateRoot(
         cv::Point2f(view0->keypoints_2d[0][0], view0->keypoints_2d[0][1]),
         cv::Point2f(view1->keypoints_2d[0][0], view1->keypoints_2d[0][1]));
-    fused.root_joint_cam0 = FilterRoot(triangulated_root, is_right);
+    fused.root_joint_cam0 = FilterRoot(triangulated_root, is_right, frame.trigger_timestamp);
     fused.pose_cam0.camera_translation[0] = fused.root_joint_cam0[0] - fused.pose_cam0.keypoints_3d[0][0];
     fused.pose_cam0.camera_translation[1] = fused.root_joint_cam0[1] - fused.pose_cam0.keypoints_3d[0][1];
     fused.pose_cam0.camera_translation[2] = fused.root_joint_cam0[2] - fused.pose_cam0.keypoints_3d[0][2];
@@ -284,7 +281,33 @@ void StereoHandFuser::ProjectToView0(HandPoseResult& pose) const {
     pose.detection.bbox[3] = bbox.y + bbox.height;
 }
 
-cv::Vec3f StereoHandFuser::FilterRoot(cv::Vec3f root_joint_cam0, bool is_right) {
+void StereoHandFuser::UpdateFilterModel(RootFilterState& state, float dt_seconds) const {
+    const float dt = ClampDtSeconds(dt_seconds, config_.root_min_dt_seconds, config_.root_max_dt_seconds);
+    state.filter.transitionMatrix = (cv::Mat_<float>(6, 6) <<
+        1, 0, 0, dt, 0, 0,
+        0, 1, 0, 0, dt, 0,
+        0, 0, 1, 0, 0, dt,
+        0, 0, 0, 1, 0, 0,
+        0, 0, 0, 0, 1, 0,
+        0, 0, 0, 0, 0, 1);
+
+    const float dt2 = dt * dt;
+    const float dt3 = dt2 * dt;
+    const float dt4 = dt2 * dt2;
+    const float q = config_.root_process_noise;
+    state.filter.processNoiseCov = (cv::Mat_<float>(6, 6) <<
+        0.25f * dt4 * q, 0, 0, 0.5f * dt3 * q, 0, 0,
+        0, 0.25f * dt4 * q, 0, 0, 0.5f * dt3 * q, 0,
+        0, 0, 0.25f * dt4 * q, 0, 0, 0.5f * dt3 * q,
+        0.5f * dt3 * q, 0, 0, dt2 * q, 0, 0,
+        0, 0.5f * dt3 * q, 0, 0, dt2 * q, 0,
+        0, 0, 0.5f * dt3 * q, 0, 0, dt2 * q);
+}
+
+cv::Vec3f StereoHandFuser::FilterRoot(
+    cv::Vec3f root_joint_cam0,
+    bool is_right,
+    std::chrono::steady_clock::time_point timestamp) {
     if (!config_.enable_root_kalman) {
         return root_joint_cam0;
     }
@@ -293,29 +316,56 @@ cv::Vec3f StereoHandFuser::FilterRoot(cv::Vec3f root_joint_cam0, bool is_right) 
     state.missing_frames = 0;
 
     if (!state.initialized) {
+        UpdateFilterModel(state, config_.root_max_dt_seconds);
         state.filter.statePost.at<float>(0) = root_joint_cam0[0];
         state.filter.statePost.at<float>(1) = root_joint_cam0[1];
         state.filter.statePost.at<float>(2) = root_joint_cam0[2];
         state.filter.statePost.at<float>(3) = 0.0f;
         state.filter.statePost.at<float>(4) = 0.0f;
         state.filter.statePost.at<float>(5) = 0.0f;
+        state.filter.statePre = state.filter.statePost.clone();
+        state.last_timestamp = timestamp;
         state.initialized = true;
         return root_joint_cam0;
     }
 
+    const float raw_dt_seconds =
+        std::chrono::duration<float>(timestamp - state.last_timestamp).count();
+    if (raw_dt_seconds > config_.temporal_reset_seconds) {
+        state.initialized = false;
+        return FilterRoot(root_joint_cam0, is_right, timestamp);
+    }
+
+    const float dt_seconds =
+        ClampDtSeconds(raw_dt_seconds, config_.root_min_dt_seconds, config_.root_max_dt_seconds);
+    UpdateFilterModel(state, dt_seconds);
     state.filter.predict();
     cv::Mat measurement = (cv::Mat_<float>(3, 1) << root_joint_cam0[0], root_joint_cam0[1], root_joint_cam0[2]);
     const cv::Mat corrected = state.filter.correct(measurement);
+    state.last_timestamp = timestamp;
+
+    if (config_.verbose_logging) {
+        std::cerr
+            << "[fusion] handedness=" << (is_right ? "right" : "left")
+            << " kalman_dt=" << dt_seconds
+            << " raw_dt=" << raw_dt_seconds
+            << "\n";
+    }
+
     return cv::Vec3f(
         corrected.at<float>(0),
         corrected.at<float>(1),
         corrected.at<float>(2));
 }
 
-void StereoHandFuser::MarkMissing(bool is_right) {
+void StereoHandFuser::MarkMissing(bool is_right, std::chrono::steady_clock::time_point timestamp) {
     auto& state = root_filters_[is_right ? 1 : 0];
     state.missing_frames += 1;
-    if (state.missing_frames > config_.temporal_reset_frames) {
+    const bool exceeded_frame_gap = state.missing_frames > config_.temporal_reset_frames;
+    const bool exceeded_time_gap =
+        state.initialized
+        && std::chrono::duration<float>(timestamp - state.last_timestamp).count() > config_.temporal_reset_seconds;
+    if (exceeded_frame_gap || exceeded_time_gap) {
         state.initialized = false;
     }
 }
