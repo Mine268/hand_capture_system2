@@ -55,6 +55,7 @@ Implemented:
 Current application entry points:
 
 - `stereo_capture_demo`
+- `stereo_camera_tracking_demo`
 - `stereo_guided_calibration_app`
 - `single_view_hand_pose_demo`
 - `stereo_single_view_hand_pose_demo`

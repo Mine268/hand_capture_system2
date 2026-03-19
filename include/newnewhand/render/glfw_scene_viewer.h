@@ -55,6 +55,7 @@ public:
 
     bool Initialize();
     bool IsOpen() const;
+    void SetTitle(const std::string& title);
     bool Render(
         const StereoFusedHandPoseFrame& frame,
         const StereoCameraTrackingResult* tracking = nullptr);

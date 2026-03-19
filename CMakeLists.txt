@@ -196,6 +196,20 @@ if(BUILD_DEMOS)
         BUILD_RPATH "${MVS_ROOT}/lib/64"
     )
 
+    add_executable(stereo_camera_tracking_demo
+        apps/stereo_camera_tracking_demo.cpp
+    )
+    target_link_libraries(stereo_camera_tracking_demo
+        PRIVATE
+            newnewhand_capture
+            newnewhand_calibration
+            newnewhand_slam
+            newnewhand_render_glfw
+    )
+    set_target_properties(stereo_camera_tracking_demo PROPERTIES
+        BUILD_RPATH "${MVS_ROOT}/lib/64"
+    )
+
     add_executable(single_view_hand_pose_demo
         apps/single_view_hand_pose_demo.cpp
     )

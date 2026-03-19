@@ -208,6 +208,13 @@ bool GlfwSceneViewer::IsOpen() const {
     return window_ != nullptr && glfwWindowShouldClose(window_) == GLFW_FALSE;
 }
 
+void GlfwSceneViewer::SetTitle(const std::string& title) {
+    config_.title = title;
+    if (window_) {
+        glfwSetWindowTitle(window_, config_.title.c_str());
+    }
+}
+
 bool GlfwSceneViewer::Render(
     const StereoFusedHandPoseFrame& frame,
     const StereoCameraTrackingResult* tracking) {

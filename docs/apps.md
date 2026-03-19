@@ -38,6 +38,29 @@ Common options:
 - `--gain <float>` sets manual gain, `-1` means auto gain
 - `--fps <int>` throttles capture loop
 
+## Stereo tracking
+
+### `stereo_camera_tracking_demo`
+
+Runs stereo capture and camera tracking only, using `resources/stereo_calibration.yaml` and the saved left/right camera serial numbers from calibration.
+
+Example:
+
+```bash
+./build/stereo_camera_tracking_demo \
+  --calibration resources/stereo_calibration.yaml \
+  --preview \
+  --glfw_view
+```
+
+Notes:
+
+- the calibration YAML must contain `left_camera_serial_number` and `right_camera_serial_number`
+- runtime capture is forced to those saved serial numbers
+- if the connected camera serials do not match the YAML, the app exits before tracking starts
+- OpenCV windows show raw left/right images with tracking status
+- the GLFW window renders the fixed world frame and the moving tracked stereo cameras
+
 ## Single-view hand pose
 
 ### `single_view_hand_pose_demo`
