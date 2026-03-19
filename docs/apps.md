@@ -40,6 +40,97 @@ Common options:
 
 ## Stereo tracking
 
+### `stereo_aruco_marker_generator`
+
+Generates a printable ArUco / AprilTag-family marker PNG and an A4 SVG print sheet with exact physical size.
+
+Example:
+
+```bash
+./build/stereo_aruco_marker_generator \
+  --dictionary DICT_APRILTAG_36h11 \
+  --marker_id 0 \
+  --size_mm 150
+```
+
+Notes:
+
+- default output directory is `resources/markers/`
+- the generator writes both a raw PNG and a `_print.svg` sheet for printing
+- the first localization demo version defaults to `DICT_APRILTAG_36h11`
+
+### `stereo_charuco_board_generator`
+
+Generates a printable ChArUco board PNG and an A4 SVG print sheet with exact physical size.
+
+Example:
+
+```bash
+./build/stereo_charuco_board_generator \
+  --dictionary DICT_APRILTAG_36h11 \
+  --squares_x 7 \
+  --squares_y 5 \
+  --square_length_mm 40 \
+  --marker_length_mm 30
+```
+
+Notes:
+
+- default output directory is `resources/charuco/`
+- use the same board parameters later in `stereo_charuco_localization_demo`
+- the generator also includes a 100 mm print-check ruler on the SVG page
+
+### `stereo_aruco_localization_demo`
+
+Runs live stereo localization from one known ArUco/AprilTag-style marker. The marker coordinate frame is treated as the world frame.
+
+Example:
+
+```bash
+./build/stereo_aruco_localization_demo \
+  --calibration resources/stereo_calibration.yaml \
+  --dictionary DICT_APRILTAG_36h11 \
+  --marker_id 0 \
+  --marker_length_m 0.12 \
+  --preview \
+  --glfw_view
+```
+
+Notes:
+
+- first version uses OpenCV `aruco` with AprilTag-family dictionaries, no extra third-party detector dependency
+- runtime capture is forced to the saved left/right serial numbers in the calibration YAML
+- if the marker is seen in the left camera, localization is solved directly in `cam0`
+- if only the right camera sees the marker, the pose is converted back into the left-camera frame using the stereo calibration
+- no hand pose estimation is involved in this demo
+- the GLFW window renders a fixed world frame with the tracked stereo cameras moving inside it
+
+### `stereo_charuco_localization_demo`
+
+Runs live stereo localization from one fixed ChArUco board. The board coordinate frame is treated as the world frame.
+
+Example:
+
+```bash
+./build/stereo_charuco_localization_demo \
+  --calibration resources/stereo_calibration.yaml \
+  --dictionary DICT_APRILTAG_36h11 \
+  --squares_x 7 \
+  --squares_y 5 \
+  --square_length_m 0.04 \
+  --marker_length_m 0.03 \
+  --preview \
+  --glfw_view
+```
+
+Notes:
+
+- this first version localizes from the left camera only
+- runtime capture is forced to the saved left/right serial numbers in the calibration YAML
+- ChArUco uses many board corners instead of one marker, so it is typically more stable than the single-marker demo
+- in practice, reducing `--exposure_us` to around `2000` or `5000` can reduce motion blur and improve tracking stability when the scene is bright enough
+- the GLFW window renders a fixed world frame with the stereo cameras moving inside it
+
 ### `stereo_camera_tracking_demo`
 
 Runs stereo capture and camera tracking only, using `resources/stereo_calibration.yaml` and the saved left/right camera serial numbers from calibration.
@@ -125,7 +216,11 @@ Workflow:
 
 - preview the two live views and press `1` if `cam0` is physical left, or `2` if `cam1` is physical left
 - enter checkerboard inner-corner cols, rows, and square size in the terminal
-- capture 30 valid checkerboard pairs at 5 FPS
+- capture 30 valid left-camera checkerboard images at 3 FPS for monocular calibration
+- capture 30 valid right-camera checkerboard images at 3 FPS for monocular calibration
+- capture 30 valid stereo checkerboard pairs at 3 FPS for stereo extrinsic calibration
+- run `calibrateCamera` independently for left and right to estimate intrinsics and distortion
+- run stereo calibration with fixed intrinsics/distortion so only the relative extrinsics are optimized
 - save calibration parameters plus `left_camera_serial_number` and `right_camera_serial_number` into one YAML
 
 ### `stereo_calibration_app`

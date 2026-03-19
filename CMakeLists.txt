@@ -210,6 +210,50 @@ if(BUILD_DEMOS)
         BUILD_RPATH "${MVS_ROOT}/lib/64"
     )
 
+    add_executable(stereo_aruco_localization_demo
+        apps/stereo_aruco_localization_demo.cpp
+    )
+    target_link_libraries(stereo_aruco_localization_demo
+        PRIVATE
+            newnewhand_capture
+            newnewhand_calibration
+            newnewhand_render_glfw
+            ${OpenCV_LIBS}
+    )
+    set_target_properties(stereo_aruco_localization_demo PROPERTIES
+        BUILD_RPATH "${MVS_ROOT}/lib/64"
+    )
+
+    add_executable(stereo_aruco_marker_generator
+        apps/stereo_aruco_marker_generator.cpp
+    )
+    target_link_libraries(stereo_aruco_marker_generator
+        PRIVATE
+            ${OpenCV_LIBS}
+    )
+
+    add_executable(stereo_charuco_board_generator
+        apps/stereo_charuco_board_generator.cpp
+    )
+    target_link_libraries(stereo_charuco_board_generator
+        PRIVATE
+            ${OpenCV_LIBS}
+    )
+
+    add_executable(stereo_charuco_localization_demo
+        apps/stereo_charuco_localization_demo.cpp
+    )
+    target_link_libraries(stereo_charuco_localization_demo
+        PRIVATE
+            newnewhand_capture
+            newnewhand_calibration
+            newnewhand_render_glfw
+            ${OpenCV_LIBS}
+    )
+    set_target_properties(stereo_charuco_localization_demo PROPERTIES
+        BUILD_RPATH "${MVS_ROOT}/lib/64"
+    )
+
     add_executable(single_view_hand_pose_demo
         apps/single_view_hand_pose_demo.cpp
     )
