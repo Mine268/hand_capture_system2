@@ -55,6 +55,10 @@ Implemented:
 Current application entry points:
 
 - `stereo_capture_demo`
+- `stereo_aruco_marker_generator`
+- `stereo_aruco_localization_demo`
+- `stereo_charuco_board_generator`
+- `stereo_charuco_localization_demo`
 - `stereo_camera_tracking_demo`
 - `stereo_guided_calibration_app`
 - `single_view_hand_pose_demo`

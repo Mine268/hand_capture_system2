@@ -102,6 +102,61 @@ StereoCalibrator::StereoCalibrator(StereoCalibrationConfig config)
     }
 }
 
+SingleCameraCalibrationResult StereoCalibrator::CalibrateSingle(
+    const std::vector<std::filesystem::path>& image_paths) const {
+    if (image_paths.empty()) {
+        throw std::invalid_argument("no calibration images were provided");
+    }
+
+    SingleCameraCalibrationResult result;
+    result.checkerboard = config_.checkerboard;
+    std::vector<std::vector<cv::Point3f>> object_points;
+    std::vector<std::vector<cv::Point2f>> image_points;
+    const std::vector<cv::Point3f> object_corners = BuildObjectCorners();
+
+    for (const auto& image_path : image_paths) {
+        const cv::Mat image = cv::imread(image_path.string(), cv::IMREAD_COLOR);
+        if (image.empty()) {
+            throw std::runtime_error("failed to read calibration image: " + image_path.string());
+        }
+
+        if (result.image_size.width == 0) {
+            result.image_size = image.size();
+        } else if (image.size() != result.image_size) {
+            throw std::runtime_error("all monocular calibration images must have the same size");
+        }
+
+        SingleCameraCalibrationObservation observation;
+        observation.image_path = image_path;
+        if (!DetectSingleCornersImpl(image, observation.corners, "calibration_single")) {
+            continue;
+        }
+
+        result.observations.push_back(observation);
+        object_points.push_back(object_corners);
+        image_points.push_back(result.observations.back().corners);
+    }
+
+    if (result.observations.size() < 3) {
+        throw std::runtime_error("at least 3 valid checkerboard observations are required for monocular calibration");
+    }
+
+    std::vector<cv::Mat> rvecs;
+    std::vector<cv::Mat> tvecs;
+    result.camera_matrix = cv::Mat::eye(3, 3, CV_64F);
+    result.dist_coeffs = cv::Mat::zeros(8, 1, CV_64F);
+    result.rms = cv::calibrateCamera(
+        object_points,
+        image_points,
+        result.image_size,
+        result.camera_matrix,
+        result.dist_coeffs,
+        rvecs,
+        tvecs);
+    result.success = true;
+    return result;
+}
+
 StereoCalibrationResult StereoCalibrator::Calibrate(const std::vector<CalibrationImagePair>& image_pairs) const {
     if (image_pairs.empty()) {
         throw std::invalid_argument("no calibration image pairs were provided");
@@ -217,6 +272,104 @@ StereoCalibrationResult StereoCalibrator::Calibrate(const std::vector<Calibratio
     return result;
 }
 
+StereoCalibrationResult StereoCalibrator::CalibrateStereoExtrinsics(
+    const std::vector<CalibrationImagePair>& image_pairs,
+    const SingleCameraCalibrationResult& left_calibration,
+    const SingleCameraCalibrationResult& right_calibration) const {
+    if (!left_calibration.success || !right_calibration.success) {
+        throw std::invalid_argument("monocular calibration results must be valid before stereo extrinsic calibration");
+    }
+    if (image_pairs.empty()) {
+        throw std::invalid_argument("no stereo calibration image pairs were provided");
+    }
+
+    StereoCalibrationResult result;
+    result.checkerboard = config_.checkerboard;
+    result.image_size = left_calibration.image_size;
+    result.left_camera_matrix = left_calibration.camera_matrix.clone();
+    result.right_camera_matrix = right_calibration.camera_matrix.clone();
+    result.left_dist_coeffs = left_calibration.dist_coeffs.clone();
+    result.right_dist_coeffs = right_calibration.dist_coeffs.clone();
+    result.left_rms = left_calibration.rms;
+    result.right_rms = right_calibration.rms;
+
+    std::vector<std::vector<cv::Point3f>> object_points;
+    std::vector<std::vector<cv::Point2f>> image_points_left;
+    std::vector<std::vector<cv::Point2f>> image_points_right;
+    const std::vector<cv::Point3f> object_corners = BuildObjectCorners();
+
+    for (std::size_t pair_index = 0; pair_index < image_pairs.size(); ++pair_index) {
+        const auto& image_pair = image_pairs[pair_index];
+        const cv::Mat left_image = cv::imread(image_pair.left_path.string(), cv::IMREAD_COLOR);
+        const cv::Mat right_image = cv::imread(image_pair.right_path.string(), cv::IMREAD_COLOR);
+        if (left_image.empty()) {
+            throw std::runtime_error("failed to read left stereo calibration image: " + image_pair.left_path.string());
+        }
+        if (right_image.empty()) {
+            throw std::runtime_error("failed to read right stereo calibration image: " + image_pair.right_path.string());
+        }
+        if (left_image.size() != right_image.size()) {
+            throw std::runtime_error("left/right stereo calibration image sizes do not match for pair: " + image_pair.left_path.string());
+        }
+        if (left_image.size() != result.image_size) {
+            throw std::runtime_error("stereo image size does not match monocular calibration image size");
+        }
+
+        StereoCalibrationObservation observation;
+        observation.image_pair = image_pair;
+        if (!DetectCorners(left_image, right_image, observation.left_corners, observation.right_corners)) {
+            continue;
+        }
+
+        if (config_.save_debug_images) {
+            SaveDebugImage(left_image, right_image, observation, pair_index);
+        }
+
+        result.observations.push_back(observation);
+        object_points.push_back(object_corners);
+        image_points_left.push_back(result.observations.back().left_corners);
+        image_points_right.push_back(result.observations.back().right_corners);
+    }
+
+    if (result.observations.size() < 3) {
+        throw std::runtime_error("at least 3 valid checkerboard observations are required for stereo calibration");
+    }
+
+    const int stereo_flags = cv::CALIB_FIX_INTRINSIC;
+    result.stereo_rms = cv::stereoCalibrate(
+        object_points,
+        image_points_left,
+        image_points_right,
+        result.left_camera_matrix,
+        result.left_dist_coeffs,
+        result.right_camera_matrix,
+        result.right_dist_coeffs,
+        result.image_size,
+        result.rotation,
+        result.translation,
+        result.essential,
+        result.fundamental,
+        stereo_flags,
+        cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 100, 1e-6));
+
+    cv::stereoRectify(
+        result.left_camera_matrix,
+        result.left_dist_coeffs,
+        result.right_camera_matrix,
+        result.right_dist_coeffs,
+        result.image_size,
+        result.rotation,
+        result.translation,
+        result.rectification_left,
+        result.rectification_right,
+        result.projection_left,
+        result.projection_right,
+        result.disparity_to_depth);
+
+    result.success = true;
+    return result;
+}
+
 void StereoCalibrator::SaveResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path) const {
     StereoCalibrationResult result_to_save = result;
     result_to_save.checkerboard = config_.checkerboard;
@@ -286,6 +439,12 @@ bool StereoCalibrator::DetectStereoCorners(
     return DetectCorners(left_image, right_image, left_corners, right_corners);
 }
 
+bool StereoCalibrator::DetectSingleCorners(
+    const cv::Mat& image,
+    std::vector<cv::Point2f>& corners) const {
+    return DetectSingleCornersImpl(image, corners, "calibration_single");
+}
+
 std::vector<CalibrationImagePair> StereoCalibrator::CollectImagePairs(
     const std::filesystem::path& left_dir,
     const std::filesystem::path& right_dir) {
@@ -333,43 +492,15 @@ bool StereoCalibrator::DetectCorners(
     const cv::Mat& right_image,
     std::vector<cv::Point2f>& left_corners,
     std::vector<cv::Point2f>& right_corners) const {
-    const cv::Size board_size(
-        config_.checkerboard.inner_corners_cols,
-        config_.checkerboard.inner_corners_rows);
-    const cv::Mat left_gray = EnsureGrayscale(left_image);
-    const cv::Mat right_gray = EnsureGrayscale(right_image);
-
-    bool left_found = false;
-    bool right_found = false;
-    if (config_.use_find_chessboard_sb) {
-        const int flags = cv::CALIB_CB_NORMALIZE_IMAGE | cv::CALIB_CB_EXHAUSTIVE;
-        left_found = cv::findChessboardCornersSB(left_gray, board_size, left_corners, flags);
-        right_found = cv::findChessboardCornersSB(right_gray, board_size, right_corners, flags);
-    } else {
-        const int flags = cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE;
-        left_found = cv::findChessboardCorners(left_gray, board_size, left_corners, flags);
-        right_found = cv::findChessboardCorners(right_gray, board_size, right_corners, flags);
-        if (left_found) {
-            cv::cornerSubPix(
-                left_gray,
-                left_corners,
-                cv::Size(11, 11),
-                cv::Size(-1, -1),
-                cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.01));
-        }
-        if (right_found) {
-            cv::cornerSubPix(
-                right_gray,
-                right_corners,
-                cv::Size(11, 11),
-                cv::Size(-1, -1),
-                cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.01));
-        }
-    }
+    const bool left_found = DetectSingleCornersImpl(left_image, left_corners, "calibration_left");
+    const bool right_found = DetectSingleCornersImpl(right_image, right_corners, "calibration_right");
 
     if (config_.show_detection_preview) {
         cv::Mat left_preview = left_image.clone();
         cv::Mat right_preview = right_image.clone();
+        const cv::Size board_size(
+            config_.checkerboard.inner_corners_cols,
+            config_.checkerboard.inner_corners_rows);
         if (left_found) {
             cv::drawChessboardCorners(left_preview, board_size, left_corners, left_found);
         }
@@ -382,6 +513,44 @@ bool StereoCalibrator::DetectCorners(
     }
 
     return left_found && right_found;
+}
+
+bool StereoCalibrator::DetectSingleCornersImpl(
+    const cv::Mat& image,
+    std::vector<cv::Point2f>& corners,
+    const std::string& preview_window_name) const {
+    const cv::Size board_size(
+        config_.checkerboard.inner_corners_cols,
+        config_.checkerboard.inner_corners_rows);
+    const cv::Mat gray = EnsureGrayscale(image);
+
+    bool found = false;
+    if (config_.use_find_chessboard_sb) {
+        const int flags = cv::CALIB_CB_NORMALIZE_IMAGE | cv::CALIB_CB_EXHAUSTIVE;
+        found = cv::findChessboardCornersSB(gray, board_size, corners, flags);
+    } else {
+        const int flags = cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE;
+        found = cv::findChessboardCorners(gray, board_size, corners, flags);
+        if (found) {
+            cv::cornerSubPix(
+                gray,
+                corners,
+                cv::Size(11, 11),
+                cv::Size(-1, -1),
+                cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.01));
+        }
+    }
+
+    if (config_.show_detection_preview) {
+        cv::Mat preview = image.clone();
+        if (found) {
+            cv::drawChessboardCorners(preview, board_size, corners, found);
+        }
+        cv::imshow(preview_window_name, preview);
+        cv::waitKey(1);
+    }
+
+    return found;
 }
 
 std::vector<cv::Point3f> StereoCalibrator::BuildObjectCorners() const {

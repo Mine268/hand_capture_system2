@@ -35,6 +35,21 @@ struct StereoCalibrationObservation {
     std::vector<cv::Point2f> right_corners;
 };
 
+struct SingleCameraCalibrationObservation {
+    std::filesystem::path image_path;
+    std::vector<cv::Point2f> corners;
+};
+
+struct SingleCameraCalibrationResult {
+    bool success = false;
+    cv::Size image_size;
+    CheckerboardConfig checkerboard;
+    double rms = 0.0;
+    cv::Mat camera_matrix;
+    cv::Mat dist_coeffs;
+    std::vector<SingleCameraCalibrationObservation> observations;
+};
+
 struct StereoCalibrationResult {
     bool success = false;
     cv::Size image_size;
@@ -66,10 +81,18 @@ class StereoCalibrator {
 public:
     explicit StereoCalibrator(StereoCalibrationConfig config);
 
+    SingleCameraCalibrationResult CalibrateSingle(const std::vector<std::filesystem::path>& image_paths) const;
     StereoCalibrationResult Calibrate(const std::vector<CalibrationImagePair>& image_pairs) const;
+    StereoCalibrationResult CalibrateStereoExtrinsics(
+        const std::vector<CalibrationImagePair>& image_pairs,
+        const SingleCameraCalibrationResult& left_calibration,
+        const SingleCameraCalibrationResult& right_calibration) const;
     void SaveResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path) const;
     static void SaveLoadedResult(const StereoCalibrationResult& result, const std::filesystem::path& output_path);
     static StereoCalibrationResult LoadResult(const std::filesystem::path& input_path);
+    bool DetectSingleCorners(
+        const cv::Mat& image,
+        std::vector<cv::Point2f>& corners) const;
     bool DetectStereoCorners(
         const cv::Mat& left_image,
         const cv::Mat& right_image,
@@ -81,6 +104,10 @@ public:
         const std::filesystem::path& right_dir);
 
 private:
+    bool DetectSingleCornersImpl(
+        const cv::Mat& image,
+        std::vector<cv::Point2f>& corners,
+        const std::string& preview_window_name) const;
     bool DetectCorners(
         const cv::Mat& left_image,
         const cv::Mat& right_image,
