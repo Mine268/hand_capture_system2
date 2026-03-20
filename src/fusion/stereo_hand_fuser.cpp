@@ -49,12 +49,49 @@ float ClampDtSeconds(float dt_seconds, float min_dt_seconds, float max_dt_second
     return std::clamp(dt_seconds, min_dt_seconds, max_dt_seconds);
 }
 
+cv::Mat BuildUndistortedCameraMatrix(
+    const cv::Mat& camera_matrix,
+    const cv::Mat& dist_coeffs,
+    const cv::Size& image_size) {
+    return cv::getOptimalNewCameraMatrix(
+        camera_matrix,
+        dist_coeffs,
+        image_size,
+        0.0,
+        image_size);
+}
+
+cv::Mat ZeroDistCoeffsLike(const cv::Mat& dist_coeffs) {
+    if (dist_coeffs.empty()) {
+        return cv::Mat::zeros(1, 5, CV_64F);
+    }
+    return cv::Mat::zeros(dist_coeffs.rows, dist_coeffs.cols, dist_coeffs.type());
+}
+
 }  // namespace
 
 StereoHandFuser::StereoHandFuser(StereoHandFuserConfig config)
     : config_(std::move(config)) {
     if (!config_.calibration.success) {
         throw std::invalid_argument("stereo calibration must be loaded before fusion");
+    }
+
+    if (config_.input_views_are_undistorted) {
+        view0_camera_matrix_ = BuildUndistortedCameraMatrix(
+            config_.calibration.left_camera_matrix,
+            config_.calibration.left_dist_coeffs,
+            config_.calibration.image_size);
+        view1_camera_matrix_ = BuildUndistortedCameraMatrix(
+            config_.calibration.right_camera_matrix,
+            config_.calibration.right_dist_coeffs,
+            config_.calibration.image_size);
+        view0_dist_coeffs_ = ZeroDistCoeffsLike(config_.calibration.left_dist_coeffs);
+        view1_dist_coeffs_ = ZeroDistCoeffsLike(config_.calibration.right_dist_coeffs);
+    } else {
+        view0_camera_matrix_ = config_.calibration.left_camera_matrix.clone();
+        view1_camera_matrix_ = config_.calibration.right_camera_matrix.clone();
+        view0_dist_coeffs_ = config_.calibration.left_dist_coeffs.clone();
+        view1_dist_coeffs_ = config_.calibration.right_dist_coeffs.clone();
     }
 
     for (auto& state : root_filters_) {
@@ -202,13 +239,13 @@ cv::Vec3f StereoHandFuser::TriangulateRoot(
     cv::undistortPoints(
         points0,
         undistorted0,
-        config_.calibration.left_camera_matrix,
-        config_.calibration.left_dist_coeffs);
+        view0_camera_matrix_,
+        view0_dist_coeffs_);
     cv::undistortPoints(
         points1,
         undistorted1,
-        config_.calibration.right_camera_matrix,
-        config_.calibration.right_dist_coeffs);
+        view1_camera_matrix_,
+        view1_dist_coeffs_);
 
     cv::Matx34d proj0 = cv::Matx34d::eye();
     cv::Matx34d proj1(
@@ -265,8 +302,8 @@ void StereoHandFuser::ProjectToView0(HandPoseResult& pose) const {
         points3d,
         cv::Vec3d(0.0, 0.0, 0.0),
         cv::Vec3d(0.0, 0.0, 0.0),
-        config_.calibration.left_camera_matrix,
-        config_.calibration.left_dist_coeffs,
+        view0_camera_matrix_,
+        view0_dist_coeffs_,
         projected);
 
     for (int i = 0; i < 21; ++i) {

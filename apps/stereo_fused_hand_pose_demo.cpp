@@ -67,8 +67,6 @@ struct DemoOptions {
     bool use_gpu = true;
     bool verbose = true;
     bool glfw_view = true;
-    bool slam = false;
-    bool charuco_localization = false;
     std::string dictionary_name = "DICT_APRILTAG_36h11";
     int squares_x = 5;
     int squares_y = 7;
@@ -140,10 +138,6 @@ DemoOptions ParseArgs(int argc, char** argv) {
         else if (arg == "--no_save") options.save = false;
         else if (arg == "--glfw_view") options.glfw_view = true;
         else if (arg == "--no_glfw_view") options.glfw_view = false;
-        else if (arg == "--slam") options.slam = true;
-        else if (arg == "--no_slam") options.slam = false;
-        else if (arg == "--charuco_localization") options.charuco_localization = true;
-        else if (arg == "--no_charuco_localization") options.charuco_localization = false;
         else if (arg == "--dictionary") options.dictionary_name = require_value(arg);
         else if (arg == "--squares_x") options.squares_x = std::stoi(require_value(arg));
         else if (arg == "--squares_y") options.squares_y = std::stoi(require_value(arg));
@@ -167,8 +161,7 @@ DemoOptions ParseArgs(int argc, char** argv) {
                 << "  --save | --no_save        default: --save\n"
                 << "  --preview | --no_preview  default: --preview\n"
                 << "  --glfw_view | --no_glfw_view  default: --glfw_view\n"
-                << "  --slam | --no_slam        default: --no_slam\n"
-                << "  --charuco_localization | --no_charuco_localization  default: --no_charuco_localization\n"
+                << "  board localization is always enabled in this demo\n"
                 << "  --dictionary <name>       default: DICT_APRILTAG_36h11\n"
                 << "  --squares_x <int>         default: 5\n"
                 << "  --squares_y <int>         default: 7\n"
@@ -203,6 +196,32 @@ void SaveFusedYaml(
     std::ostringstream name;
     name << std::setw(6) << std::setfill('0') << frame.capture_index << ".yaml";
     fuser.SaveFrame(frame, root / "yaml" / name.str());
+}
+
+newnewhand::StereoFrame UndistortStereoFrame(
+    const newnewhand::StereoFrame& raw_frame,
+    const cv::Mat& left_map_x,
+    const cv::Mat& left_map_y,
+    const cv::Mat& right_map_x,
+    const cv::Mat& right_map_y) {
+    newnewhand::StereoFrame undistorted_frame = raw_frame;
+    if (!raw_frame.views[0].bgr_image.empty()) {
+        cv::remap(
+            raw_frame.views[0].bgr_image,
+            undistorted_frame.views[0].bgr_image,
+            left_map_x,
+            left_map_y,
+            cv::INTER_LINEAR);
+    }
+    if (!raw_frame.views[1].bgr_image.empty()) {
+        cv::remap(
+            raw_frame.views[1].bgr_image,
+            undistorted_frame.views[1].bgr_image,
+            right_map_x,
+            right_map_y,
+            cv::INTER_LINEAR);
+    }
+    return undistorted_frame;
 }
 
 void ApplyCalibrationSerialsToCaptureConfig(
@@ -492,25 +511,21 @@ int main(int argc, char** argv) {
         pipeline_config.pose_config.use_gpu = options.use_gpu;
 
         const auto calibration = newnewhand::StereoCalibrator::LoadResult(options.calibration_path);
-        if (options.slam && options.charuco_localization) {
-            throw std::runtime_error("use at most one of --slam and --charuco_localization");
+        if (options.squares_x < 3 || options.squares_y < 3) {
+            throw std::runtime_error("board localization requires at least a 3x3 ChArUco board");
         }
-        if (options.charuco_localization) {
-            if (options.squares_x < 3 || options.squares_y < 3) {
-                throw std::runtime_error("charuco localization requires at least a 3x3 board");
-            }
-            if (options.square_length_m <= 0.0f || options.marker_length_m <= 0.0f) {
-                throw std::runtime_error("--square_length_m and --marker_length_m must be positive");
-            }
-            if (options.marker_length_m >= options.square_length_m) {
-                throw std::runtime_error("--marker_length_m must be smaller than --square_length_m");
-            }
+        if (options.square_length_m <= 0.0f || options.marker_length_m <= 0.0f) {
+            throw std::runtime_error("--square_length_m and --marker_length_m must be positive");
+        }
+        if (options.marker_length_m >= options.square_length_m) {
+            throw std::runtime_error("--marker_length_m must be smaller than --square_length_m");
         }
         ApplyCalibrationSerialsToCaptureConfig(options, calibration, pipeline_config);
         newnewhand::StereoHandFuserConfig fuser_config;
         fuser_config.calibration = calibration;
         fuser_config.require_both_views = true;
         fuser_config.verbose_logging = options.verbose;
+        fuser_config.input_views_are_undistorted = true;
 
         newnewhand::GlfwSceneViewerConfig viewer_config;
         viewer_config.has_cam1_pose = true;
@@ -545,52 +560,60 @@ int main(int argc, char** argv) {
                 }
 
                 newnewhand::StereoSingleViewHandPosePipeline pipeline(pipeline_config);
-                std::unique_ptr<newnewhand::StereoVisualOdometry> slam_tracker;
                 cv::Mat undistort_left_map_x;
                 cv::Mat undistort_left_map_y;
+                cv::Mat undistort_right_map_x;
+                cv::Mat undistort_right_map_y;
                 cv::Mat undistort_left_camera_matrix;
+                cv::Mat undistort_right_camera_matrix;
                 cv::Mat undistort_zero_dist_coeffs;
                 std::unique_ptr<cv::aruco::CharucoBoard> charuco_board;
                 std::unique_ptr<cv::aruco::CharucoDetector> charuco_detector;
                 CharucoLocalizationState charuco_state;
-                if (options.slam) {
-                    newnewhand::StereoVisualOdometryConfig slam_config;
-                    slam_config.calibration = calibration;
-                    slam_config.verbose_logging = options.verbose;
-                    slam_tracker = std::make_unique<newnewhand::StereoVisualOdometry>(std::move(slam_config));
-                } else if (options.charuco_localization) {
-                    undistort_left_camera_matrix = BuildUndistortedCameraMatrix(
-                        calibration.left_camera_matrix,
-                        calibration.left_dist_coeffs,
-                        calibration.image_size);
-                    undistort_zero_dist_coeffs = cv::Mat::zeros(1, 5, CV_64F);
-                    cv::initUndistortRectifyMap(
-                        calibration.left_camera_matrix,
-                        calibration.left_dist_coeffs,
-                        cv::Mat(),
-                        undistort_left_camera_matrix,
-                        calibration.image_size,
-                        CV_32FC1,
-                        undistort_left_map_x,
-                        undistort_left_map_y);
-                    const cv::aruco::Dictionary dictionary =
-                        cv::aruco::getPredefinedDictionary(ParseDictionaryName(options.dictionary_name));
-                    charuco_board = std::make_unique<cv::aruco::CharucoBoard>(
-                        cv::Size(options.squares_x, options.squares_y),
-                        options.square_length_m,
-                        options.marker_length_m,
-                        dictionary);
-                    charuco_board->setLegacyPattern(options.legacy_pattern);
-                    cv::aruco::CharucoParameters charuco_parameters;
-                    charuco_parameters.cameraMatrix = undistort_left_camera_matrix;
-                    charuco_parameters.distCoeffs = undistort_zero_dist_coeffs;
-                    cv::aruco::DetectorParameters detector_parameters;
-                    detector_parameters.cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
-                    charuco_detector = std::make_unique<cv::aruco::CharucoDetector>(
-                        *charuco_board,
-                        charuco_parameters,
-                        detector_parameters);
-                }
+                undistort_left_camera_matrix = BuildUndistortedCameraMatrix(
+                    calibration.left_camera_matrix,
+                    calibration.left_dist_coeffs,
+                    calibration.image_size);
+                undistort_right_camera_matrix = BuildUndistortedCameraMatrix(
+                    calibration.right_camera_matrix,
+                    calibration.right_dist_coeffs,
+                    calibration.image_size);
+                undistort_zero_dist_coeffs = cv::Mat::zeros(1, 5, CV_64F);
+                cv::initUndistortRectifyMap(
+                    calibration.left_camera_matrix,
+                    calibration.left_dist_coeffs,
+                    cv::Mat(),
+                    undistort_left_camera_matrix,
+                    calibration.image_size,
+                    CV_32FC1,
+                    undistort_left_map_x,
+                    undistort_left_map_y);
+                cv::initUndistortRectifyMap(
+                    calibration.right_camera_matrix,
+                    calibration.right_dist_coeffs,
+                    cv::Mat(),
+                    undistort_right_camera_matrix,
+                    calibration.image_size,
+                    CV_32FC1,
+                    undistort_right_map_x,
+                    undistort_right_map_y);
+                const cv::aruco::Dictionary dictionary =
+                    cv::aruco::getPredefinedDictionary(ParseDictionaryName(options.dictionary_name));
+                charuco_board = std::make_unique<cv::aruco::CharucoBoard>(
+                    cv::Size(options.squares_x, options.squares_y),
+                    options.square_length_m,
+                    options.marker_length_m,
+                    dictionary);
+                charuco_board->setLegacyPattern(options.legacy_pattern);
+                cv::aruco::CharucoParameters charuco_parameters;
+                charuco_parameters.cameraMatrix = undistort_left_camera_matrix;
+                charuco_parameters.distCoeffs = undistort_zero_dist_coeffs;
+                cv::aruco::DetectorParameters detector_parameters;
+                detector_parameters.cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
+                charuco_detector = std::make_unique<cv::aruco::CharucoDetector>(
+                    *charuco_board,
+                    charuco_parameters,
+                    detector_parameters);
                 pipeline.Initialize();
                 pipeline.Start();
                 ValidateActiveCamerasAgainstCalibration(pipeline.ActiveCameras(), calibration);
@@ -602,7 +625,14 @@ int main(int argc, char** argv) {
                         }
 
                         const auto loop_start = std::chrono::steady_clock::now();
-                        auto stereo_frame = pipeline.CaptureAndEstimate();
+                        auto raw_stereo_frame = pipeline.Capture();
+                        auto undistorted_stereo_frame = UndistortStereoFrame(
+                            raw_stereo_frame,
+                            undistort_left_map_x,
+                            undistort_left_map_y,
+                            undistort_right_map_x,
+                            undistort_right_map_y);
+                        auto stereo_frame = pipeline.Estimate(undistorted_stereo_frame);
                         if (stop_requested.load()) {
                             break;
                         }
@@ -634,18 +664,9 @@ int main(int argc, char** argv) {
                         auto fused_frame = fuser.Fuse(stereo_frame);
                         newnewhand::StereoCameraTrackingResult tracking_result;
                         CharucoDetectionResult charuco_detection;
-                        if (slam_tracker) {
-                            tracking_result = slam_tracker->Track(stereo_frame);
-                        } else if (charuco_detector) {
-                            cv::Mat undistorted_left_image;
-                            cv::remap(
-                                stereo_frame.views[0].camera_frame.bgr_image,
-                                undistorted_left_image,
-                                undistort_left_map_x,
-                                undistort_left_map_y,
-                                cv::INTER_LINEAR);
+                        if (charuco_detector) {
                             charuco_detection = EstimateCharucoPoseInLeftCamera(
-                                undistorted_left_image,
+                                stereo_frame.views[0].camera_frame.bgr_image,
                                 *charuco_board,
                                 *charuco_detector,
                                 undistort_left_camera_matrix,
@@ -683,7 +704,7 @@ int main(int argc, char** argv) {
                         }
 
                         if (offline_writer) {
-                            offline_writer->SaveFrame(stereo_frame, fused_frame);
+                            offline_writer->SaveFrame(raw_stereo_frame, stereo_frame, fused_frame);
                         }
 
                         if (frame_interval.count() > 0) {
@@ -750,26 +771,14 @@ int main(int argc, char** argv) {
                                 0.5,
                                 0.5);
                             std::ostringstream tracking_text;
-                            if (options.charuco_localization) {
-                                tracking_text
-                                    << "charuco "
-                                    << (latest_frame->tracking_result.initialized
-                                            ? (latest_frame->tracking_result.tracking_ok ? "ok" : "hold")
-                                            : "init")
-                                    << " corners=" << latest_frame->charuco_detection.num_charuco_corners
-                                    << " reproj=" << std::fixed << std::setprecision(3)
-                                    << latest_frame->charuco_detection.reprojection_error_px;
-                            } else {
-                                tracking_text
-                                    << "slam "
-                                    << (latest_frame->tracking_result.initialized
-                                            ? (latest_frame->tracking_result.tracking_ok ? "ok" : "hold")
-                                            : "init")
-                                    << " kp=" << latest_frame->tracking_result.left_keypoints
-                                    << " stereo=" << latest_frame->tracking_result.stereo_points
-                                    << " match=" << latest_frame->tracking_result.matched_points
-                                    << " inlier=" << latest_frame->tracking_result.tracking_inliers;
-                            }
+                            tracking_text
+                                << "charuco "
+                                << (latest_frame->tracking_result.initialized
+                                        ? (latest_frame->tracking_result.tracking_ok ? "ok" : "hold")
+                                        : "init")
+                                << " corners=" << latest_frame->charuco_detection.num_charuco_corners
+                                << " reproj=" << std::fixed << std::setprecision(3)
+                                << latest_frame->charuco_detection.reprojection_error_px;
                             cv::putText(
                                 preview,
                                 tracking_text.str(),
@@ -780,17 +789,9 @@ int main(int argc, char** argv) {
                                 2);
                             if (!latest_frame->tracking_result.status_message.empty()) {
                                 std::ostringstream tracking_detail_text;
-                                if (options.charuco_localization) {
-                                    tracking_detail_text
-                                        << "dict=" << options.dictionary_name
-                                        << " board=" << options.squares_x << "x" << options.squares_y;
-                                } else {
-                                    tracking_detail_text
-                                        << "disp_kp=" << latest_frame->tracking_result.valid_disparity_keypoints
-                                        << " nan=" << latest_frame->tracking_result.invalid_nonfinite_disparity
-                                        << " low=" << latest_frame->tracking_result.invalid_low_disparity
-                                        << " depth=" << latest_frame->tracking_result.invalid_depth;
-                                }
+                                tracking_detail_text
+                                    << "dict=" << options.dictionary_name
+                                    << " board=" << options.squares_x << "x" << options.squares_y;
                                 cv::putText(
                                     preview,
                                     tracking_detail_text.str(),
@@ -809,15 +810,15 @@ int main(int argc, char** argv) {
                                     1);
                             }
                             if (latest_frame->tracking_result.initialized) {
-                                std::ostringstream slam_pose_text;
-                                slam_pose_text
+                                std::ostringstream pose_text;
+                                pose_text
                                     << "xyz=("
                                     << latest_frame->tracking_result.camera_center_world[0] << ", "
                                     << latest_frame->tracking_result.camera_center_world[1] << ", "
                                     << latest_frame->tracking_result.camera_center_world[2] << ")";
                                 cv::putText(
                                     preview,
-                                    slam_pose_text.str(),
+                                    pose_text.str(),
                                     cv::Point(16, 102),
                                     cv::FONT_HERSHEY_SIMPLEX,
                                     0.5,

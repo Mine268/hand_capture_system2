@@ -50,6 +50,7 @@ public:
 
     void Initialize();
     void Start();
+    StereoFrame Capture();
     StereoSingleViewPoseFrame CaptureAndEstimate();
     StereoSingleViewPoseFrame Estimate(const StereoFrame& stereo_frame);
     void Stop();

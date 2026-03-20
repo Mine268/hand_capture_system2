@@ -79,8 +79,12 @@ void StereoSingleViewHandPosePipeline::Start() {
     impl_->capture.Start();
 }
 
+StereoFrame StereoSingleViewHandPosePipeline::Capture() {
+    return impl_->capture.Capture();
+}
+
 StereoSingleViewPoseFrame StereoSingleViewHandPosePipeline::CaptureAndEstimate() {
-    return Estimate(impl_->capture.Capture());
+    return Estimate(Capture());
 }
 
 StereoSingleViewPoseFrame StereoSingleViewHandPosePipeline::Estimate(const StereoFrame& stereo_frame) {

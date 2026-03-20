@@ -311,7 +311,6 @@ if(BUILD_DEMOS)
     target_link_libraries(stereo_fused_hand_pose_demo
         PRIVATE
             newnewhand_fusion
-            newnewhand_slam
             newnewhand_render_glfw
             newnewhand_io
     )

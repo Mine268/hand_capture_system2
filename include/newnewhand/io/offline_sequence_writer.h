@@ -22,6 +22,7 @@ public:
 
     void Initialize();
     void SaveFrame(
+        const StereoFrame& raw_stereo_frame,
         const StereoSingleViewPoseFrame& stereo_frame,
         const StereoFusedHandPoseFrame& fused_frame);
 

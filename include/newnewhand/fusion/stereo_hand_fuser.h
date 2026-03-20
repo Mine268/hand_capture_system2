@@ -34,6 +34,7 @@ struct StereoHandFuserConfig {
     StereoCalibrationResult calibration;
     bool require_both_views = true;
     bool verbose_logging = true;
+    bool input_views_are_undistorted = false;
     bool enable_root_kalman = true;
     float root_process_noise = 5e-2f;
     float root_measurement_noise = 7e-4f;
@@ -73,6 +74,10 @@ private:
     void MarkMissing(bool is_right, std::chrono::steady_clock::time_point timestamp);
 
     StereoHandFuserConfig config_;
+    cv::Mat view0_camera_matrix_;
+    cv::Mat view1_camera_matrix_;
+    cv::Mat view0_dist_coeffs_;
+    cv::Mat view1_dist_coeffs_;
     std::array<RootFilterState, 2> root_filters_;
 };
 

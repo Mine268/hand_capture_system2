@@ -61,6 +61,7 @@ void OfflineSequenceWriter::Initialize() {
 }
 
 void OfflineSequenceWriter::SaveFrame(
+    const StereoFrame& raw_stereo_frame,
     const StereoSingleViewPoseFrame& stereo_frame,
     const StereoFusedHandPoseFrame& fused_frame) {
     if (!initialized_) {
@@ -68,9 +69,9 @@ void OfflineSequenceWriter::SaveFrame(
     }
 
     if (config_.save_raw_images) {
-        for (std::size_t camera_index = 0; camera_index < stereo_frame.views.size(); ++camera_index) {
-            if (!stereo_frame.views[camera_index].camera_frame.bgr_image.empty()) {
-                SaveViewImage("images", fused_frame.capture_index, stereo_frame.views[camera_index].camera_frame.bgr_image, camera_index);
+        for (std::size_t camera_index = 0; camera_index < raw_stereo_frame.views.size(); ++camera_index) {
+            if (!raw_stereo_frame.views[camera_index].bgr_image.empty()) {
+                SaveViewImage("images", fused_frame.capture_index, raw_stereo_frame.views[camera_index].bgr_image, camera_index);
             }
         }
     }
