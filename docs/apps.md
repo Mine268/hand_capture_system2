@@ -276,11 +276,27 @@ Runs stereo capture, per-view hand pose estimation, and fuses the hand pose into
   --output_dir results/stereo_fused_hand_pose
 ```
 
+Board-localized hand-pose example:
+
+```bash
+./build/stereo_fused_hand_pose_demo \
+  --calibration resources/stereo_calibration.yaml \
+  --gpu \
+  --charuco_localization \
+  --dictionary DICT_APRILTAG_36h11 \
+  --squares_x 5 \
+  --squares_y 7 \
+  --square_length_m 0.028 \
+  --marker_length_m 0.021
+```
+
 Notes:
 
 - `--calibration <yaml>` is required
 - if the calibration YAML contains `left_camera_serial_number` and `right_camera_serial_number`, capture order is forced to those serials
 - if the active hardware serials do not match the YAML, runtime stops before pose estimation and SLAM
+- `--slam` enables the existing stereo visual-odometry tracker; `--charuco_localization` switches the runtime to left-view ChArUco board localization instead
+- ChArUco localization reuses the same calibration YAML and projects the fused hand mesh into the fixed board/world frame in the GLFW viewer
 - `--offline_dump_dir <dir>` optionally exports raw stereo views, overlays, calibration, mono results and fused results
 - OpenCV windows still show the per-view overlay images
 - a GLFW + OpenGL window renders the fused hand mesh in the `cam0` coordinate frame
