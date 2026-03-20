@@ -1,11 +1,14 @@
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
+#include <deque>
 #include <exception>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -87,16 +90,32 @@ struct CharucoDetectionResult {
     std::vector<std::vector<cv::Point2f>> marker_corners;
 };
 
-struct LatestFrameData {
+struct CapturePacket {
+    newnewhand::StereoFrame raw_stereo_frame;
+    newnewhand::StereoFrame undistorted_stereo_frame;
+};
+
+struct PosePacket {
     newnewhand::StereoSingleViewPoseFrame stereo_frame;
     newnewhand::StereoFusedHandPoseFrame fused_frame;
+};
+
+struct TrackingPacket {
+    std::uint64_t capture_index = 0;
     newnewhand::StereoCameraTrackingResult tracking_result;
     CharucoDetectionResult charuco_detection;
 };
 
-struct SharedWorkerState {
+struct LatestFrameData {
+    std::shared_ptr<const PosePacket> pose_packet;
+    std::shared_ptr<const TrackingPacket> tracking_packet;
+};
+
+struct SharedResultState {
     std::mutex mutex;
     std::shared_ptr<const LatestFrameData> latest_frame;
+    std::map<std::uint64_t, std::shared_ptr<const PosePacket>> pending_pose_packets;
+    std::map<std::uint64_t, std::shared_ptr<const TrackingPacket>> pending_tracking_packets;
     std::exception_ptr worker_error;
 };
 
@@ -105,6 +124,50 @@ struct CharucoLocalizationState {
     cv::Matx33f rotation_world_from_cam0 = cv::Matx33f::eye();
     cv::Vec3f camera_center_world = cv::Vec3f(0.0f, 0.0f, 0.0f);
     std::vector<cv::Vec3f> trajectory_world;
+};
+
+template <typename T>
+class BoundedQueue {
+public:
+    explicit BoundedQueue(std::size_t max_size) : max_size_(max_size) {}
+
+    void Push(T item) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (closed_) {
+            return;
+        }
+        if (max_size_ > 0 && queue_.size() >= max_size_) {
+            queue_.pop_front();
+        }
+        queue_.push_back(std::move(item));
+        cv_.notify_one();
+    }
+
+    bool WaitPop(T& item, const std::atomic<bool>& stop_requested) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [&]() {
+            return closed_ || !queue_.empty() || stop_requested.load();
+        });
+        if (queue_.empty()) {
+            return false;
+        }
+        item = std::move(queue_.front());
+        queue_.pop_front();
+        return true;
+    }
+
+    void Close() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        closed_ = true;
+        cv_.notify_all();
+    }
+
+private:
+    std::size_t max_size_ = 0;
+    bool closed_ = false;
+    std::deque<T> queue_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
 };
 
 DemoOptions ParseArgs(int argc, char** argv) {
@@ -222,6 +285,62 @@ newnewhand::StereoFrame UndistortStereoFrame(
             cv::INTER_LINEAR);
     }
     return undistorted_frame;
+}
+
+constexpr std::size_t kCaptureQueueDepth = 2;
+constexpr std::size_t kMaxPendingResultPackets = 16;
+
+template <typename T>
+void TrimPendingPackets(std::map<std::uint64_t, std::shared_ptr<const T>>& packets) {
+    while (packets.size() > kMaxPendingResultPackets) {
+        packets.erase(packets.begin());
+    }
+}
+
+void TryAssembleLatestFrameLocked(SharedResultState& state, std::uint64_t capture_index) {
+    const auto pose_it = state.pending_pose_packets.find(capture_index);
+    if (pose_it == state.pending_pose_packets.end()) {
+        return;
+    }
+    const auto tracking_it = state.pending_tracking_packets.find(capture_index);
+    if (tracking_it == state.pending_tracking_packets.end()) {
+        return;
+    }
+
+    auto latest_frame = std::make_shared<LatestFrameData>();
+    latest_frame->pose_packet = pose_it->second;
+    latest_frame->tracking_packet = tracking_it->second;
+    state.latest_frame = std::move(latest_frame);
+
+    state.pending_pose_packets.erase(
+        state.pending_pose_packets.begin(),
+        state.pending_pose_packets.upper_bound(capture_index));
+    state.pending_tracking_packets.erase(
+        state.pending_tracking_packets.begin(),
+        state.pending_tracking_packets.upper_bound(capture_index));
+}
+
+void PublishPosePacket(SharedResultState& state, std::shared_ptr<const PosePacket> packet) {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    const std::uint64_t capture_index = packet->stereo_frame.capture_index;
+    state.pending_pose_packets[capture_index] = std::move(packet);
+    TrimPendingPackets(state.pending_pose_packets);
+    TryAssembleLatestFrameLocked(state, capture_index);
+}
+
+void PublishTrackingPacket(SharedResultState& state, std::shared_ptr<const TrackingPacket> packet) {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    const std::uint64_t capture_index = packet->capture_index;
+    state.pending_tracking_packets[capture_index] = std::move(packet);
+    TrimPendingPackets(state.pending_tracking_packets);
+    TryAssembleLatestFrameLocked(state, capture_index);
+}
+
+void RecordWorkerError(SharedResultState& state, std::exception_ptr error) {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    if (!state.worker_error) {
+        state.worker_error = error;
+    }
 }
 
 void ApplyCalibrationSerialsToCaptureConfig(
@@ -446,11 +565,12 @@ CharucoDetectionResult EstimateCharucoPoseInLeftCamera(
 
 newnewhand::StereoCameraTrackingResult UpdateCharucoTrackingResult(
     const CharucoDetectionResult& detection,
-    const newnewhand::StereoSingleViewPoseFrame& stereo_frame,
+    std::uint64_t capture_index,
+    std::chrono::steady_clock::time_point trigger_timestamp,
     CharucoLocalizationState& state) {
     newnewhand::StereoCameraTrackingResult tracking_result;
-    tracking_result.capture_index = stereo_frame.capture_index;
-    tracking_result.trigger_timestamp = stereo_frame.trigger_timestamp;
+    tracking_result.capture_index = capture_index;
+    tracking_result.trigger_timestamp = trigger_timestamp;
     tracking_result.left_keypoints = detection.num_charuco_corners;
     if (!detection.detected) {
         tracking_result.status_message = state.has_pose
@@ -532,44 +652,28 @@ int main(int argc, char** argv) {
         viewer_config.cam1_rotation_cam1_to_cam0 = cv::Matx33f(calibration.rotation).t();
         const cv::Vec3f translation_01(calibration.translation);
         viewer_config.cam1_center_cam0 = -(viewer_config.cam1_rotation_cam1_to_cam0 * translation_01);
-        newnewhand::GlfwSceneViewer viewer(viewer_config);
-
-        if (options.glfw_view && !viewer.Initialize()) {
-            throw std::runtime_error("failed to initialize GLFW OpenGL viewer");
-        }
 
         const auto frame_interval = options.fps == 0
             ? std::chrono::microseconds(0)
             : std::chrono::microseconds(1000000 / options.fps);
 
-        SharedWorkerState shared_state;
+        BoundedQueue<std::shared_ptr<const CapturePacket>> tracking_capture_queue(kCaptureQueueDepth);
+        BoundedQueue<std::shared_ptr<const CapturePacket>> pose_capture_queue(kCaptureQueueDepth);
+        SharedResultState shared_state;
         std::atomic<bool> stop_requested = false;
-        std::atomic<bool> worker_finished = false;
-        std::thread worker([&]() {
-            try {
-                newnewhand::StereoHandFuser fuser(std::move(fuser_config));
-                std::unique_ptr<newnewhand::OfflineSequenceWriter> offline_writer;
-                if (!options.offline_dump_dir.empty()) {
-                    newnewhand::OfflineSequenceWriterConfig writer_config;
-                    writer_config.output_root = options.offline_dump_dir;
-                    writer_config.calibration_source_path = options.calibration_path;
-                    writer_config.save_raw_images = true;
-                    writer_config.save_overlay_images = true;
-                    offline_writer = std::make_unique<newnewhand::OfflineSequenceWriter>(writer_config, calibration);
-                    offline_writer->Initialize();
-                }
+        std::atomic<bool> capture_finished = false;
+        std::atomic<bool> tracking_finished = false;
+        std::atomic<bool> pose_finished = false;
 
-                newnewhand::StereoSingleViewHandPosePipeline pipeline(pipeline_config);
+        std::thread capture_worker([&]() {
+            try {
+                newnewhand::StereoCapture capture(pipeline_config.capture_config);
                 cv::Mat undistort_left_map_x;
                 cv::Mat undistort_left_map_y;
                 cv::Mat undistort_right_map_x;
                 cv::Mat undistort_right_map_y;
                 cv::Mat undistort_left_camera_matrix;
                 cv::Mat undistort_right_camera_matrix;
-                cv::Mat undistort_zero_dist_coeffs;
-                std::unique_ptr<cv::aruco::CharucoBoard> charuco_board;
-                std::unique_ptr<cv::aruco::CharucoDetector> charuco_detector;
-                CharucoLocalizationState charuco_state;
                 undistort_left_camera_matrix = BuildUndistortedCameraMatrix(
                     calibration.left_camera_matrix,
                     calibration.left_dist_coeffs,
@@ -578,7 +682,6 @@ int main(int argc, char** argv) {
                     calibration.right_camera_matrix,
                     calibration.right_dist_coeffs,
                     calibration.image_size);
-                undistort_zero_dist_coeffs = cv::Mat::zeros(1, 5, CV_64F);
                 cv::initUndistortRectifyMap(
                     calibration.left_camera_matrix,
                     calibration.left_dist_coeffs,
@@ -597,26 +700,9 @@ int main(int argc, char** argv) {
                     CV_32FC1,
                     undistort_right_map_x,
                     undistort_right_map_y);
-                const cv::aruco::Dictionary dictionary =
-                    cv::aruco::getPredefinedDictionary(ParseDictionaryName(options.dictionary_name));
-                charuco_board = std::make_unique<cv::aruco::CharucoBoard>(
-                    cv::Size(options.squares_x, options.squares_y),
-                    options.square_length_m,
-                    options.marker_length_m,
-                    dictionary);
-                charuco_board->setLegacyPattern(options.legacy_pattern);
-                cv::aruco::CharucoParameters charuco_parameters;
-                charuco_parameters.cameraMatrix = undistort_left_camera_matrix;
-                charuco_parameters.distCoeffs = undistort_zero_dist_coeffs;
-                cv::aruco::DetectorParameters detector_parameters;
-                detector_parameters.cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
-                charuco_detector = std::make_unique<cv::aruco::CharucoDetector>(
-                    *charuco_board,
-                    charuco_parameters,
-                    detector_parameters);
-                pipeline.Initialize();
-                pipeline.Start();
-                ValidateActiveCamerasAgainstCalibration(pipeline.ActiveCameras(), calibration);
+                capture.Initialize();
+                capture.Start();
+                ValidateActiveCamerasAgainstCalibration(capture.ActiveCameras(), calibration);
 
                 try {
                     for (int frame_count = 0; options.frames < 0 || frame_count < options.frames; ++frame_count) {
@@ -625,87 +711,16 @@ int main(int argc, char** argv) {
                         }
 
                         const auto loop_start = std::chrono::steady_clock::now();
-                        auto raw_stereo_frame = pipeline.Capture();
-                        auto undistorted_stereo_frame = UndistortStereoFrame(
-                            raw_stereo_frame,
+                        auto capture_packet = std::make_shared<CapturePacket>();
+                        capture_packet->raw_stereo_frame = capture.Capture();
+                        capture_packet->undistorted_stereo_frame = UndistortStereoFrame(
+                            capture_packet->raw_stereo_frame,
                             undistort_left_map_x,
                             undistort_left_map_y,
                             undistort_right_map_x,
                             undistort_right_map_y);
-                        auto stereo_frame = pipeline.Estimate(undistorted_stereo_frame);
-                        if (stop_requested.load()) {
-                            break;
-                        }
-
-                        if (options.verbose) {
-                            std::cerr << "[app] capture=" << stereo_frame.capture_index << "\n";
-                            for (std::size_t view_index = 0; view_index < stereo_frame.views.size(); ++view_index) {
-                                const auto& view = stereo_frame.views[view_index];
-                                std::cerr
-                                    << "[app] view" << view_index
-                                    << " hands=" << view.hand_poses.size()
-                                    << " valid=" << view.camera_frame.valid
-                                    << " error=" << (view.inference_error.empty() ? "<none>" : view.inference_error)
-                                    << "\n";
-                                for (std::size_t hand_index = 0; hand_index < view.hand_poses.size(); ++hand_index) {
-                                    const auto& hand = view.hand_poses[hand_index];
-                                    std::cerr
-                                        << "[app] view" << view_index
-                                        << " hand" << hand_index
-                                        << " type=" << (hand.detection.is_right ? "right" : "left")
-                                        << " bbox=(" << hand.detection.bbox[0] << ", " << hand.detection.bbox[1]
-                                        << ", " << hand.detection.bbox[2] << ", " << hand.detection.bbox[3] << ")"
-                                        << " root2d=" << FormatPoint(hand.keypoints_2d[0][0], hand.keypoints_2d[0][1])
-                                        << "\n";
-                                }
-                            }
-                        }
-
-                        auto fused_frame = fuser.Fuse(stereo_frame);
-                        newnewhand::StereoCameraTrackingResult tracking_result;
-                        CharucoDetectionResult charuco_detection;
-                        if (charuco_detector) {
-                            charuco_detection = EstimateCharucoPoseInLeftCamera(
-                                stereo_frame.views[0].camera_frame.bgr_image,
-                                *charuco_board,
-                                *charuco_detector,
-                                undistort_left_camera_matrix,
-                                undistort_zero_dist_coeffs);
-                            tracking_result = UpdateCharucoTrackingResult(
-                                charuco_detection,
-                                stereo_frame,
-                                charuco_state);
-                        }
-                        std::cout
-                            << "capture=" << fused_frame.capture_index
-                            << " fused_hands=" << fused_frame.hands.size() << "\n";
-
-                        auto latest_frame = std::make_shared<LatestFrameData>();
-                        latest_frame->stereo_frame = stereo_frame;
-                        latest_frame->fused_frame = fused_frame;
-                        latest_frame->tracking_result = tracking_result;
-                        latest_frame->charuco_detection = std::move(charuco_detection);
-                        {
-                            std::lock_guard<std::mutex> lock(shared_state.mutex);
-                            shared_state.latest_frame = std::move(latest_frame);
-                        }
-
-                        if (options.save) {
-                            for (std::size_t i = 0; i < stereo_frame.views.size(); ++i) {
-                                if (!stereo_frame.views[i].overlay_image.empty()) {
-                                    SaveImage(
-                                        options.output_dir,
-                                        "cam" + std::to_string(i),
-                                        fused_frame.capture_index,
-                                        stereo_frame.views[i].overlay_image);
-                                }
-                            }
-                            SaveFusedYaml(fuser, fused_frame, options.output_dir);
-                        }
-
-                        if (offline_writer) {
-                            offline_writer->SaveFrame(raw_stereo_frame, stereo_frame, fused_frame);
-                        }
+                        tracking_capture_queue.Push(capture_packet);
+                        pose_capture_queue.Push(capture_packet);
 
                         if (frame_interval.count() > 0) {
                             const auto elapsed = std::chrono::steady_clock::now() - loop_start;
@@ -717,137 +732,315 @@ int main(int argc, char** argv) {
                         }
                     }
                 } catch (...) {
-                    pipeline.Stop();
+                    capture.Stop();
                     throw;
                 }
 
-                pipeline.Stop();
+                capture.Stop();
             } catch (...) {
-                std::lock_guard<std::mutex> lock(shared_state.mutex);
-                shared_state.worker_error = std::current_exception();
+                RecordWorkerError(shared_state, std::current_exception());
+                stop_requested.store(true);
             }
-            worker_finished.store(true);
+            tracking_capture_queue.Close();
+            pose_capture_queue.Close();
+            capture_finished.store(true);
         });
 
-        std::shared_ptr<const LatestFrameData> latest_frame;
-        std::exception_ptr worker_error;
-        const newnewhand::StereoFusedHandPoseFrame empty_fused_frame;
+        std::thread tracking_worker([&]() {
+            try {
+                const cv::Mat undistorted_left_camera_matrix = BuildUndistortedCameraMatrix(
+                    calibration.left_camera_matrix,
+                    calibration.left_dist_coeffs,
+                    calibration.image_size);
+                const cv::Mat undistorted_zero_dist_coeffs = cv::Mat::zeros(1, 5, CV_64F);
+                const cv::aruco::Dictionary dictionary =
+                    cv::aruco::getPredefinedDictionary(ParseDictionaryName(options.dictionary_name));
+                cv::aruco::CharucoBoard charuco_board(
+                    cv::Size(options.squares_x, options.squares_y),
+                    options.square_length_m,
+                    options.marker_length_m,
+                    dictionary);
+                charuco_board.setLegacyPattern(options.legacy_pattern);
+                cv::aruco::CharucoParameters charuco_parameters;
+                charuco_parameters.cameraMatrix = undistorted_left_camera_matrix;
+                charuco_parameters.distCoeffs = undistorted_zero_dist_coeffs;
+                cv::aruco::DetectorParameters detector_parameters;
+                detector_parameters.cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
+                cv::aruco::CharucoDetector charuco_detector(
+                    charuco_board,
+                    charuco_parameters,
+                    detector_parameters);
+                CharucoLocalizationState charuco_state;
 
-        while (true) {
-            {
-                std::lock_guard<std::mutex> lock(shared_state.mutex);
-                if (shared_state.latest_frame) {
-                    latest_frame = shared_state.latest_frame;
+                std::shared_ptr<const CapturePacket> capture_packet;
+                while (tracking_capture_queue.WaitPop(capture_packet, stop_requested)) {
+                    const auto& stereo_frame = capture_packet->undistorted_stereo_frame;
+                    CharucoDetectionResult charuco_detection = EstimateCharucoPoseInLeftCamera(
+                        stereo_frame.views[0].bgr_image,
+                        charuco_board,
+                        charuco_detector,
+                        undistorted_left_camera_matrix,
+                        undistorted_zero_dist_coeffs);
+                    auto tracking_result = UpdateCharucoTrackingResult(
+                        charuco_detection,
+                        stereo_frame.capture_index,
+                        stereo_frame.trigger_timestamp,
+                        charuco_state);
+
+                    auto tracking_packet = std::make_shared<TrackingPacket>();
+                    tracking_packet->capture_index = tracking_result.capture_index;
+                    tracking_packet->tracking_result = std::move(tracking_result);
+                    tracking_packet->charuco_detection = std::move(charuco_detection);
+                    PublishTrackingPacket(shared_state, std::move(tracking_packet));
                 }
-                if (shared_state.worker_error) {
-                    worker_error = shared_state.worker_error;
+            } catch (...) {
+                RecordWorkerError(shared_state, std::current_exception());
+                stop_requested.store(true);
+            }
+            tracking_finished.store(true);
+        });
+
+        std::thread pose_worker([&]() {
+            try {
+                newnewhand::StereoHandFuser fuser(fuser_config);
+                newnewhand::StereoSingleViewHandPosePipeline pose_pipeline(pipeline_config);
+                std::unique_ptr<newnewhand::OfflineSequenceWriter> offline_writer;
+                if (!options.offline_dump_dir.empty()) {
+                    newnewhand::OfflineSequenceWriterConfig writer_config;
+                    writer_config.output_root = options.offline_dump_dir;
+                    writer_config.calibration_source_path = options.calibration_path;
+                    writer_config.save_raw_images = true;
+                    writer_config.save_overlay_images = true;
+                    offline_writer = std::make_unique<newnewhand::OfflineSequenceWriter>(writer_config, calibration);
+                    offline_writer->Initialize();
                 }
-            }
 
-            if (worker_error) {
-                break;
-            }
+                std::shared_ptr<const CapturePacket> capture_packet;
+                while (pose_capture_queue.WaitPop(capture_packet, stop_requested)) {
+                    auto stereo_frame = pose_pipeline.Estimate(capture_packet->undistorted_stereo_frame);
 
-            if (options.glfw_view) {
-                const auto& fused_frame = latest_frame ? latest_frame->fused_frame : empty_fused_frame;
-                const newnewhand::StereoCameraTrackingResult* tracking_result =
-                    latest_frame ? &latest_frame->tracking_result : nullptr;
-                if (!viewer.Render(fused_frame, tracking_result)) {
-                    std::cerr << "[app] GLFW viewer closed by user\n";
-                    stop_requested.store(true);
-                    break;
-                }
-            }
-
-            if (options.preview) {
-                if (latest_frame) {
-                    for (std::size_t i = 0; i < latest_frame->stereo_frame.views.size(); ++i) {
-                        if (!latest_frame->stereo_frame.views[i].overlay_image.empty()) {
-                            cv::Mat preview;
-                            cv::resize(
-                                latest_frame->stereo_frame.views[i].overlay_image,
-                                preview,
-                                cv::Size(),
-                                0.5,
-                                0.5);
-                            std::ostringstream tracking_text;
-                            tracking_text
-                                << "charuco "
-                                << (latest_frame->tracking_result.initialized
-                                        ? (latest_frame->tracking_result.tracking_ok ? "ok" : "hold")
-                                        : "init")
-                                << " corners=" << latest_frame->charuco_detection.num_charuco_corners
-                                << " reproj=" << std::fixed << std::setprecision(3)
-                                << latest_frame->charuco_detection.reprojection_error_px;
-                            cv::putText(
-                                preview,
-                                tracking_text.str(),
-                                cv::Point(16, 28),
-                                cv::FONT_HERSHEY_SIMPLEX,
-                                0.55,
-                                cv::Scalar(40, 220, 255),
-                                2);
-                            if (!latest_frame->tracking_result.status_message.empty()) {
-                                std::ostringstream tracking_detail_text;
-                                tracking_detail_text
-                                    << "dict=" << options.dictionary_name
-                                    << " board=" << options.squares_x << "x" << options.squares_y;
-                                cv::putText(
-                                    preview,
-                                    tracking_detail_text.str(),
-                                    cv::Point(16, 54),
-                                    cv::FONT_HERSHEY_SIMPLEX,
-                                    0.5,
-                                    cv::Scalar(40, 220, 255),
-                                    1);
-                                cv::putText(
-                                    preview,
-                                    latest_frame->tracking_result.status_message,
-                                    cv::Point(16, 78),
-                                    cv::FONT_HERSHEY_SIMPLEX,
-                                    0.5,
-                                    cv::Scalar(40, 220, 255),
-                                    1);
+                    if (options.verbose) {
+                        std::cerr << "[app] capture=" << stereo_frame.capture_index << "\n";
+                        for (std::size_t view_index = 0; view_index < stereo_frame.views.size(); ++view_index) {
+                            const auto& view = stereo_frame.views[view_index];
+                            std::cerr
+                                << "[app] view" << view_index
+                                << " hands=" << view.hand_poses.size()
+                                << " valid=" << view.camera_frame.valid
+                                << " error=" << (view.inference_error.empty() ? "<none>" : view.inference_error)
+                                << "\n";
+                            for (std::size_t hand_index = 0; hand_index < view.hand_poses.size(); ++hand_index) {
+                                const auto& hand = view.hand_poses[hand_index];
+                                std::cerr
+                                    << "[app] view" << view_index
+                                    << " hand" << hand_index
+                                    << " type=" << (hand.detection.is_right ? "right" : "left")
+                                    << " bbox=(" << hand.detection.bbox[0] << ", " << hand.detection.bbox[1]
+                                    << ", " << hand.detection.bbox[2] << ", " << hand.detection.bbox[3] << ")"
+                                    << " root2d=" << FormatPoint(hand.keypoints_2d[0][0], hand.keypoints_2d[0][1])
+                                    << "\n";
                             }
-                            if (latest_frame->tracking_result.initialized) {
-                                std::ostringstream pose_text;
-                                pose_text
-                                    << "xyz=("
-                                    << latest_frame->tracking_result.camera_center_world[0] << ", "
-                                    << latest_frame->tracking_result.camera_center_world[1] << ", "
-                                    << latest_frame->tracking_result.camera_center_world[2] << ")";
-                                cv::putText(
-                                    preview,
-                                    pose_text.str(),
-                                    cv::Point(16, 102),
-                                    cv::FONT_HERSHEY_SIMPLEX,
-                                    0.5,
-                                    cv::Scalar(40, 220, 255),
-                                    1);
-                            }
-                            cv::imshow("fused_pose_cam" + std::to_string(i), preview);
                         }
                     }
-                }
-                const int key = cv::waitKey(1);
-                if (key == 'q' || key == 27) {
-                    stop_requested.store(true);
-                    break;
-                }
-            }
 
-            if (worker_finished.load()) {
-                break;
-            }
+                    auto fused_frame = fuser.Fuse(stereo_frame);
+                    std::cout
+                        << "capture=" << fused_frame.capture_index
+                        << " fused_hands=" << fused_frame.hands.size() << "\n";
 
-            if (!options.glfw_view) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    if (options.save) {
+                        for (std::size_t i = 0; i < stereo_frame.views.size(); ++i) {
+                            if (!stereo_frame.views[i].overlay_image.empty()) {
+                                SaveImage(
+                                    options.output_dir,
+                                    "cam" + std::to_string(i),
+                                    fused_frame.capture_index,
+                                    stereo_frame.views[i].overlay_image);
+                            }
+                        }
+                        SaveFusedYaml(fuser, fused_frame, options.output_dir);
+                    }
+
+                    if (offline_writer) {
+                        offline_writer->SaveFrame(
+                            capture_packet->raw_stereo_frame,
+                            stereo_frame,
+                            fused_frame);
+                    }
+
+                    auto pose_packet = std::make_shared<PosePacket>();
+                    pose_packet->stereo_frame = std::move(stereo_frame);
+                    pose_packet->fused_frame = std::move(fused_frame);
+                    PublishPosePacket(shared_state, std::move(pose_packet));
+                }
+            } catch (...) {
+                RecordWorkerError(shared_state, std::current_exception());
+                stop_requested.store(true);
             }
+            pose_finished.store(true);
+        });
+
+        std::thread render_worker([&]() {
+            try {
+                newnewhand::GlfwSceneViewer viewer(viewer_config);
+                if (options.glfw_view && !viewer.Initialize()) {
+                    throw std::runtime_error("failed to initialize GLFW OpenGL viewer");
+                }
+
+                std::shared_ptr<const LatestFrameData> latest_frame;
+                std::exception_ptr worker_error;
+                const newnewhand::StereoFusedHandPoseFrame empty_fused_frame;
+                std::uint64_t last_rendered_capture_index = 0;
+
+                while (true) {
+                    {
+                        std::lock_guard<std::mutex> lock(shared_state.mutex);
+                        if (shared_state.latest_frame) {
+                            latest_frame = shared_state.latest_frame;
+                        }
+                        if (shared_state.worker_error) {
+                            worker_error = shared_state.worker_error;
+                        }
+                    }
+
+                    if (worker_error) {
+                        break;
+                    }
+
+                    const PosePacket* pose_packet = latest_frame ? latest_frame->pose_packet.get() : nullptr;
+                    const TrackingPacket* tracking_packet = latest_frame ? latest_frame->tracking_packet.get() : nullptr;
+
+                    if (options.glfw_view) {
+                        const auto& fused_frame = pose_packet ? pose_packet->fused_frame : empty_fused_frame;
+                        const newnewhand::StereoCameraTrackingResult* tracking_result =
+                            tracking_packet ? &tracking_packet->tracking_result : nullptr;
+                        if (!viewer.Render(fused_frame, tracking_result)) {
+                            std::cerr << "[app] GLFW viewer closed by user\n";
+                            stop_requested.store(true);
+                            break;
+                        }
+                    }
+
+                    if (options.preview) {
+                        if (pose_packet && tracking_packet) {
+                            for (std::size_t i = 0; i < pose_packet->stereo_frame.views.size(); ++i) {
+                                if (!pose_packet->stereo_frame.views[i].overlay_image.empty()) {
+                                    cv::Mat preview;
+                                    cv::resize(
+                                        pose_packet->stereo_frame.views[i].overlay_image,
+                                        preview,
+                                        cv::Size(),
+                                        0.5,
+                                        0.5);
+                                    std::ostringstream tracking_text;
+                                    tracking_text
+                                        << "charuco "
+                                        << (tracking_packet->tracking_result.initialized
+                                                ? (tracking_packet->tracking_result.tracking_ok ? "ok" : "hold")
+                                                : "init")
+                                        << " corners=" << tracking_packet->charuco_detection.num_charuco_corners
+                                        << " reproj=" << std::fixed << std::setprecision(3)
+                                        << tracking_packet->charuco_detection.reprojection_error_px;
+                                    cv::putText(
+                                        preview,
+                                        tracking_text.str(),
+                                        cv::Point(16, 28),
+                                        cv::FONT_HERSHEY_SIMPLEX,
+                                        0.55,
+                                        cv::Scalar(40, 220, 255),
+                                        2);
+                                    if (!tracking_packet->tracking_result.status_message.empty()) {
+                                        std::ostringstream tracking_detail_text;
+                                        tracking_detail_text
+                                            << "dict=" << options.dictionary_name
+                                            << " board=" << options.squares_x << "x" << options.squares_y;
+                                        cv::putText(
+                                            preview,
+                                            tracking_detail_text.str(),
+                                            cv::Point(16, 54),
+                                            cv::FONT_HERSHEY_SIMPLEX,
+                                            0.5,
+                                            cv::Scalar(40, 220, 255),
+                                            1);
+                                        cv::putText(
+                                            preview,
+                                            tracking_packet->tracking_result.status_message,
+                                            cv::Point(16, 78),
+                                            cv::FONT_HERSHEY_SIMPLEX,
+                                            0.5,
+                                            cv::Scalar(40, 220, 255),
+                                            1);
+                                    }
+                                    if (tracking_packet->tracking_result.initialized) {
+                                        std::ostringstream pose_text;
+                                        pose_text
+                                            << "xyz=("
+                                            << tracking_packet->tracking_result.camera_center_world[0] << ", "
+                                            << tracking_packet->tracking_result.camera_center_world[1] << ", "
+                                            << tracking_packet->tracking_result.camera_center_world[2] << ")";
+                                        cv::putText(
+                                            preview,
+                                            pose_text.str(),
+                                            cv::Point(16, 102),
+                                            cv::FONT_HERSHEY_SIMPLEX,
+                                            0.5,
+                                            cv::Scalar(40, 220, 255),
+                                            1);
+                                    }
+                                    cv::imshow("fused_pose_cam" + std::to_string(i), preview);
+                                }
+                            }
+                        }
+
+                        const int key = cv::waitKey(1);
+                        if (key == 'q' || key == 27) {
+                            stop_requested.store(true);
+                            break;
+                        }
+                    }
+
+                    if (pose_packet && tracking_packet) {
+                        last_rendered_capture_index = pose_packet->stereo_frame.capture_index;
+                    }
+
+                    if (stop_requested.load()) {
+                        break;
+                    }
+
+                    if (capture_finished.load() && pose_finished.load() && tracking_finished.load()) {
+                        if (!latest_frame
+                            || latest_frame->pose_packet->stereo_frame.capture_index == last_rendered_capture_index) {
+                            break;
+                        }
+                    }
+
+                    if (!options.glfw_view) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    }
+                }
+            } catch (...) {
+                RecordWorkerError(shared_state, std::current_exception());
+                stop_requested.store(true);
+            }
+        });
+
+        if (capture_worker.joinable()) {
+            capture_worker.join();
+        }
+        if (tracking_worker.joinable()) {
+            tracking_worker.join();
+        }
+        if (pose_worker.joinable()) {
+            pose_worker.join();
+        }
+        if (render_worker.joinable()) {
+            render_worker.join();
         }
 
-        stop_requested.store(true);
-        if (worker.joinable()) {
-            worker.join();
+        std::exception_ptr worker_error;
+        {
+            std::lock_guard<std::mutex> lock(shared_state.mutex);
+            worker_error = shared_state.worker_error;
         }
         if (worker_error) {
             std::rethrow_exception(worker_error);
