@@ -1,14 +1,17 @@
 build/
+build_stella/
 cmake-build-*/
 *.swp
 *.swo
 .DS_Store
 captures/
 captures_calib/
+offline_capture/
 results/
 output.png
 results*.png
 debug/
+run*.log
 resources/models/
 resources/stereo_calibration_scene.png
 offline_dump/

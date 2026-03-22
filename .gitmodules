@@ -1,0 +1,9 @@
+[submodule "third/g2o"]
+	path = third/g2o
+	url = git@github.com:RainerKuemmerle/g2o.git
+[submodule "third/stella_vslam"]
+	path = third/stella_vslam
+	url = git@github.com:stella-cv/stella_vslam.git
+[submodule "third/yaml-cpp"]
+	path = third/yaml-cpp
+	url = git@github.com:jbeder/yaml-cpp.git
