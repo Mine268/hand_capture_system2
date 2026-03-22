@@ -18,11 +18,17 @@
 #include <unordered_map>
 
 #include <opencv2/calib3d.hpp>
+#include <opencv2/core/version.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#if CV_MAJOR_VERSION >= 4
 #include <opencv2/objdetect/aruco_board.hpp>
 #include <opencv2/objdetect/charuco_detector.hpp>
+#else
+#include <opencv2/aruco.hpp>
+#include <opencv2/aruco/charuco.hpp>
+#endif
 
 #include "newnewhand/fusion/stereo_hand_fuser.h"
 #include "newnewhand/io/offline_sequence_writer.h"

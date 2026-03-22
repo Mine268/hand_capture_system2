@@ -141,7 +141,7 @@ void StereoHandFuser::SaveFrame(const StereoFusedHandPoseFrame& frame, const std
         throw std::runtime_error("failed to open fused hand pose output file: " + output_path.string());
     }
 
-    fs << "capture_index" << static_cast<int64_t>(frame.capture_index);
+    fs << "capture_index" << static_cast<double>(frame.capture_index);
     fs << "num_hands" << static_cast<int>(frame.hands.size());
     fs << "hands" << "[";
     for (const auto& hand : frame.hands) {

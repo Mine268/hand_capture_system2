@@ -193,8 +193,21 @@ std::vector<StereoCalibrationBoardPose> StereoCalibrationVisualizer::EstimateBoa
         const cv::Mat left_gray = EnsureGrayscale(left_image);
         bool found = false;
         if (use_find_chessboard_sb) {
+            #if CV_VERSION_MAJOR >= 4
             const int flags = cv::CALIB_CB_NORMALIZE_IMAGE | cv::CALIB_CB_EXHAUSTIVE;
             found = cv::findChessboardCornersSB(left_gray, board_size, left_corners, flags);
+            #else
+            const int flags = cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE;
+            found = cv::findChessboardCorners(left_gray, board_size, left_corners, flags);
+            if (found) {
+                cv::cornerSubPix(
+                    left_gray,
+                    left_corners,
+                    cv::Size(11, 11),
+                    cv::Size(-1, -1),
+                    cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.01));
+            }
+            #endif
         } else {
             const int flags = cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE;
             found = cv::findChessboardCorners(left_gray, board_size, left_corners, flags);

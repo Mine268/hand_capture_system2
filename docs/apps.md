@@ -38,6 +38,38 @@ Common options:
 - `--gain <float>` sets manual gain, `-1` means auto gain
 - `--fps <int>` throttles capture loop
 
+### `stereo_offline_capture_app`
+
+Captures synchronized stereo frames into a video package for later processing, and can also decode that package back into an image sequence.
+
+Example:
+
+```bash
+./build/stereo_offline_capture_app \
+  --mode capture \
+  --output_dir offline_capture/session_001 \
+  --calibration resources/stereo_calibration.yaml \
+  --fps 30 \
+  --frames 300
+```
+
+Notes:
+
+- capture mode writes `videos/cam0.avi`, `videos/cam1.avi`, `manifest.yaml`, and optionally `calibration/stereo_calibration.yaml`
+- `--fps` is intended for fixed-rate offline capture such as `30` or `60`
+- if `--calibration <yaml>` is provided and contains saved stereo serial numbers, capture order is forced to that calibration
+- video writing runs on a background writer thread so capture is less sensitive to disk IO stalls
+- `--video_codec MJPG` is the default and is intended to keep capture overhead low
+- use decode mode to turn a video package back into `images/cam0` and `images/cam1` for later offline apps:
+
+```bash
+./build/stereo_offline_capture_app \
+  --mode decode \
+  --input_dir offline_capture/session_001 \
+  --output_dir offline_capture/session_001_images \
+  --image_format png
+```
+
 ## Stereo tracking
 
 ### `stereo_aruco_marker_generator`
@@ -314,3 +346,28 @@ Notes:
   - `U/O`: roll
   - `Z/X`: zoom in/out
 - use `--no_glfw_view` to disable the GLFW renderer
+
+### `stereo_fused_hand_pose_offline_demo`
+
+Loads an offline stereo capture package, runs hand pose estimation and fusion, and uses hybrid localization: ChArUco board pose when available, otherwise SLAM fallback.
+
+```bash
+./build/stereo_fused_hand_pose_offline_demo \
+  --input_dir offline_capture/session_001 \
+  --calibration resources/stereo_calibration.yaml \
+  --gpu \
+  --dictionary DICT_APRILTAG_36h11 \
+  --squares_x 5 \
+  --squares_y 7 \
+  --square_length_m 0.028 \
+  --marker_length_m 0.021
+```
+
+Notes:
+
+- `--input_dir <dir>` is required and should contain either `images/cam0` + `images/cam1` or `cam0` + `cam1`
+- the app first applies per-view single-image undistortion for ChArUco localization and hand pose estimation
+- SLAM fallback uses the raw stereo images and performs stereo rectification inside the VO module
+- the offline demo uses heavier stereo VO defaults than the live demos: more ORB features, larger stereo search, and more PnP iterations
+- if the board is visible, world pose comes from ChArUco; if the board is missing, the app can seed SLAM-to-world alignment from the latest valid calibrated pose and then use aligned SLAM fallback
+- `--offline_dump_dir <dir>` re-exports raw images, overlays, calibration, mono results and fused results for the processed sequence

@@ -39,6 +39,7 @@ struct StereoCameraTrackingResult {
 
 struct StereoVisualOdometryConfig {
     StereoCalibrationResult calibration;
+    bool input_views_are_undistorted = false;
     int max_features = 2000;
     float scale_factor = 1.2f;
     int num_levels = 8;

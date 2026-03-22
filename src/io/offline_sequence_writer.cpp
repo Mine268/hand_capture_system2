@@ -128,7 +128,7 @@ void OfflineSequenceWriter::WriteFrameYaml(
         throw std::runtime_error("failed to open offline frame yaml: " + output_path.string());
     }
 
-    fs << "capture_index" << static_cast<int64_t>(fused_frame.capture_index);
+    fs << "capture_index" << static_cast<double>(fused_frame.capture_index);
     fs << "calibration_file" << "../calibration/stereo_calibration.yaml";
 
     fs << "views" << "[";
@@ -137,9 +137,9 @@ void OfflineSequenceWriter::WriteFrameYaml(
         fs << "{";
         fs << "camera_index" << static_cast<int>(camera_index);
         fs << "serial_number" << view.camera_frame.serial_number;
-        fs << "frame_index" << static_cast<int64_t>(view.camera_frame.frame_index);
-        fs << "device_timestamp" << static_cast<int64_t>(view.camera_frame.device_timestamp);
-        fs << "sdk_host_timestamp" << static_cast<int64_t>(view.camera_frame.sdk_host_timestamp);
+        fs << "frame_index" << static_cast<double>(view.camera_frame.frame_index);
+        fs << "device_timestamp" << static_cast<double>(view.camera_frame.device_timestamp);
+        fs << "sdk_host_timestamp" << static_cast<double>(view.camera_frame.sdk_host_timestamp);
         fs << "image_width" << static_cast<int>(view.camera_frame.width);
         fs << "image_height" << static_cast<int>(view.camera_frame.height);
         fs << "valid" << static_cast<int>(view.camera_frame.valid);

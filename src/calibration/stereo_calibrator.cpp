@@ -526,8 +526,21 @@ bool StereoCalibrator::DetectSingleCornersImpl(
 
     bool found = false;
     if (config_.use_find_chessboard_sb) {
+        #if CV_VERSION_MAJOR >= 4
         const int flags = cv::CALIB_CB_NORMALIZE_IMAGE | cv::CALIB_CB_EXHAUSTIVE;
         found = cv::findChessboardCornersSB(gray, board_size, corners, flags);
+        #else
+        const int flags = cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE;
+        found = cv::findChessboardCorners(gray, board_size, corners, flags);
+        if (found) {
+            cv::cornerSubPix(
+                gray,
+                corners,
+                cv::Size(11, 11),
+                cv::Size(-1, -1),
+                cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.01));
+        }
+        #endif
     } else {
         const int flags = cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE;
         found = cv::findChessboardCorners(gray, board_size, corners, flags);

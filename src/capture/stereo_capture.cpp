@@ -72,6 +72,24 @@ void TrySetBoolValue(CMvCamera& camera, const char* key, bool value) {
     camera.SetBoolValue(key, value);
 }
 
+void SetFloatValueChecked(CMvCamera& camera, const char* key, float value) {
+    MVCC_FLOATVALUE range = {0};
+    const int get_ret = camera.GetFloatValue(key, &range);
+    if (get_ret == MV_OK) {
+        if (value < range.fMin || value > range.fMax) {
+            std::ostringstream oss;
+            oss
+                << key << " value out of range: requested=" << value
+                << " supported=[" << range.fMin << ", " << range.fMax << "]";
+            throw std::runtime_error(oss.str());
+        }
+    } else if (get_ret != MV_E_SUPPORT) {
+        ThrowIfMvFailed(std::string("query ") + key + " range", get_ret);
+    }
+
+    ThrowIfMvFailed(std::string("set ") + key, camera.SetFloatValue(key, value));
+}
+
 std::vector<CameraDescriptor> EnumerateCameraDescriptors() {
     MV_CC_DEVICE_INFO_LIST device_info_list = {0};
     ThrowIfMvFailed("enumerate devices", CMvCamera::EnumDevices(kSupportedTransportLayers, &device_info_list));
@@ -132,13 +150,13 @@ void ConfigureCamera(CMvCamera& camera, const StereoCameraSettings& settings) {
     }
 
     ThrowIfMvFailed("set ExposureMode", camera.SetEnumValue("ExposureMode", 0));
-    ThrowIfMvFailed("set ExposureTime", camera.SetFloatValue("ExposureTime", settings.exposure_us));
+    SetFloatValueChecked(camera, "ExposureTime", settings.exposure_us);
 
     if (settings.gain < 0.0f) {
         ThrowIfMvFailed("set GainAuto", camera.SetEnumValue("GainAuto", 1));
     } else {
         ThrowIfMvFailed("set GainAuto", camera.SetEnumValue("GainAuto", 0));
-        ThrowIfMvFailed("set Gain", camera.SetFloatValue("Gain", settings.gain));
+        SetFloatValueChecked(camera, "Gain", settings.gain);
     }
 }
 

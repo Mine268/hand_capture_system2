@@ -7,12 +7,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_definitions(NEWNEWHAND_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 
 option(BUILD_DEMOS "Build demo executables" ON)
+option(NEWHAND_ENABLE_STELLA_VSLAM "Build vendored stella_vslam backend from third/" OFF)
 set(MVS_ROOT "/opt/MVS" CACHE PATH "Hikrobot MVS SDK root directory")
 set(
     ONNX_RUNTIME_DIR
     "/home/renkaiwen/src/wilor_deploy/wilor_deploy/cpp_module/onnxruntime-linux-x64-gpu-1.17.1"
     CACHE PATH
     "ONNX Runtime SDK root directory")
+
+if(NOT OpenCV_DIR AND EXISTS "/usr/local/lib/cmake/opencv4/OpenCVConfig.cmake")
+    set(OpenCV_DIR "/usr/local/lib/cmake/opencv4" CACHE PATH "Preferred OpenCV config directory")
+endif()
 
 find_package(OpenCV REQUIRED)
 find_package(Threads REQUIRED)
@@ -138,6 +143,27 @@ target_link_libraries(newnewhand_slam
         ${OpenCV_LIBS}
 )
 
+if(NEWHAND_ENABLE_STELLA_VSLAM)
+    add_library(newnewhand_slam_stella STATIC
+        src/slam/stella_vslam_tracker.cpp
+    )
+    target_include_directories(newnewhand_slam_stella
+        PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third/stella_vslam/src
+    )
+    target_link_libraries(newnewhand_slam_stella
+        PUBLIC
+            newnewhand_calibration
+            newnewhand_capture
+            newnewhand_slam
+            stella_vslam
+            yaml-cpp
+            ${OpenCV_LIBS}
+    )
+    target_compile_definitions(newnewhand_slam_stella PUBLIC NEWNEWHAND_HAVE_STELLA_VSLAM=1)
+endif()
+
 add_library(newnewhand_io STATIC
     src/io/offline_sequence_writer.cpp
 )
@@ -184,6 +210,15 @@ target_link_libraries(newnewhand_render_glfw
         ${GLEW_LIBRARIES}
 )
 
+if(NEWHAND_ENABLE_STELLA_VSLAM)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third/stella_vslam/CMakeLists.txt")
+        message(FATAL_ERROR "NEWHAND_ENABLE_STELLA_VSLAM=ON but third/stella_vslam is missing")
+    endif()
+    set(USE_ARUCO OFF CACHE BOOL "" FORCE)
+    set(USE_ARUCO_NANO OFF CACHE BOOL "" FORCE)
+    add_subdirectory(third/stella_vslam EXCLUDE_FROM_ALL)
+endif()
+
 if(BUILD_DEMOS)
     add_executable(stereo_capture_demo
         apps/stereo_capture_demo.cpp
@@ -193,6 +228,18 @@ if(BUILD_DEMOS)
             newnewhand_capture
     )
     set_target_properties(stereo_capture_demo PROPERTIES
+        BUILD_RPATH "${MVS_ROOT}/lib/64"
+    )
+
+    add_executable(stereo_offline_capture_app
+        apps/stereo_offline_capture_app.cpp
+    )
+    target_link_libraries(stereo_offline_capture_app
+        PRIVATE
+            newnewhand_capture
+            newnewhand_calibration
+    )
+    set_target_properties(stereo_offline_capture_app PROPERTIES
         BUILD_RPATH "${MVS_ROOT}/lib/64"
     )
 
@@ -316,5 +363,26 @@ if(BUILD_DEMOS)
     )
     set_target_properties(stereo_fused_hand_pose_demo PROPERTIES
         BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib;${MVS_ROOT}/lib/64"
+    )
+
+    add_executable(stereo_fused_hand_pose_offline_demo
+        apps/stereo_fused_hand_pose_offline_demo.cpp
+    )
+    target_link_libraries(stereo_fused_hand_pose_offline_demo
+        PRIVATE
+            newnewhand_fusion
+            newnewhand_slam
+            newnewhand_render_glfw
+            newnewhand_io
+            ${OpenCV_LIBS}
+    )
+    if(NEWHAND_ENABLE_STELLA_VSLAM)
+        target_link_libraries(stereo_fused_hand_pose_offline_demo
+            PRIVATE
+                newnewhand_slam_stella
+        )
+    endif()
+    set_target_properties(stereo_fused_hand_pose_offline_demo PROPERTIES
+        BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib"
     )
 endif()
