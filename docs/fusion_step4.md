@@ -29,9 +29,10 @@ The demo saves per-frame YAML files containing:
 - fused vertices in `cam0`
 - MANO parameters
 
-## Optional offline export
+## Offline replay package
 
-Use `--offline_dump_dir <dir>` to export a frame-by-frame offline package.
+The offline fused demo now saves a full frame-by-frame replay package to `--output_dir`.
+Use `--offline_dump_dir <dir>` only when you also want a second copy in another location.
 
 Current layout:
 
@@ -48,6 +49,7 @@ Each frame YAML contains:
 - camera frame metadata for `cam0` and `cam1`
 - per-view single-view hand results
 - fused hand results in the `cam0` frame
+- camera tracking result and trajectory
 - mesh vertices
 - root joint position
 - MANO rotations and shape parameters

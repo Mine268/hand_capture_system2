@@ -370,7 +370,27 @@ Notes:
 - SLAM fallback uses the raw stereo images and performs stereo rectification inside the VO module
 - the offline demo uses heavier stereo VO defaults than the live demos: more ORB features, larger stereo search, and more PnP iterations
 - if the board is visible, world pose comes from ChArUco; if the board is missing, the app can seed SLAM-to-world alignment from the latest valid calibrated pose and then use aligned SLAM fallback
-- `--offline_dump_dir <dir>` re-exports raw images, overlays, calibration, mono results and fused results for the processed sequence
+- `--output_dir <dir>` now saves a full replay package by default: `manifest.yaml`, `calibration/`, `images/`, `overlays/`, and `frames/*.yaml`
+- each saved frame yaml contains per-view pose results, fused pose results, and camera tracking data
+- `--offline_dump_dir <dir>` optionally writes a second copy of the same replay package to another directory
+
+### `stereo_fused_hand_pose_replay_app`
+
+Replays a saved fused offline package without rerunning pose estimation or camera tracking.
+
+```bash
+./build_stella/stereo_fused_hand_pose_replay_app \
+  --input_dir results/stereo_fused_hand_pose_offline \
+  --fps 30 \
+  --preview \
+  --glfw_view
+```
+
+Notes:
+
+- `--input_dir <dir>` must point to a package written by `stereo_fused_hand_pose_offline_demo`
+- 2D preview reuses saved overlays or raw images when overlays are unavailable
+- 3D replay uses the saved fused hand poses and saved camera tracking trajectory
 
 Recommended end-to-end workflow:
 

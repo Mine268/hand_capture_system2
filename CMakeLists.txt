@@ -417,4 +417,17 @@ if(BUILD_DEMOS)
     set_target_properties(stereo_fused_hand_pose_offline_demo PROPERTIES
         BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib"
     )
+
+    add_executable(stereo_fused_hand_pose_replay_app
+        apps/stereo_fused_hand_pose_replay_app.cpp
+    )
+    target_link_libraries(stereo_fused_hand_pose_replay_app
+        PRIVATE
+            newnewhand_calibration
+            newnewhand_render_glfw
+            ${OpenCV_LIBS}
+    )
+    set_target_properties(stereo_fused_hand_pose_replay_app PROPERTIES
+        BUILD_RPATH "${ONNX_RUNTIME_DIR}/lib"
+    )
 endif()

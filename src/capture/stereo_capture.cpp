@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <condition_variable>
 #include <cstdint>
 #include <exception>
@@ -23,6 +24,7 @@ namespace {
 
 constexpr unsigned int kSupportedTransportLayers = MV_USB_DEVICE | MV_GIGE_DEVICE;
 constexpr std::size_t kStereoCameraCount = 2;
+constexpr unsigned int kDefaultImageNodeNum = 3;
 
 std::string TrimNullTerminatedString(const unsigned char* raw) {
     if (!raw) {
@@ -72,6 +74,10 @@ void TrySetBoolValue(CMvCamera& camera, const char* key, bool value) {
     camera.SetBoolValue(key, value);
 }
 
+void TrySetIntValue(CMvCamera& camera, const char* key, std::int64_t value) {
+    camera.SetIntValue(key, value);
+}
+
 void SetFloatValueChecked(CMvCamera& camera, const char* key, float value) {
     MVCC_FLOATVALUE range = {0};
     const int get_ret = camera.GetFloatValue(key, &range);
@@ -111,6 +117,227 @@ std::vector<CameraDescriptor> EnumerateCameraDescriptors() {
     return descriptors;
 }
 
+std::uint32_t FrameWidth(const MV_FRAME_OUT_INFO_EX& frame_info) {
+    return frame_info.nExtendWidth != 0 ? frame_info.nExtendWidth : frame_info.nWidth;
+}
+
+std::uint32_t FrameHeight(const MV_FRAME_OUT_INFO_EX& frame_info) {
+    return frame_info.nExtendHeight != 0 ? frame_info.nExtendHeight : frame_info.nHeight;
+}
+
+std::uint64_t FrameLengthBytes(const MV_FRAME_OUT_INFO_EX& frame_info) {
+    return frame_info.nFrameLenEx != 0 ? frame_info.nFrameLenEx : frame_info.nFrameLen;
+}
+
+std::string PixelTypeToString(MvGvspPixelType pixel_type) {
+    switch (pixel_type) {
+        case PixelType_Gvsp_Mono8:
+            return "Mono8";
+        case PixelType_Gvsp_Mono10:
+            return "Mono10";
+        case PixelType_Gvsp_Mono10_Packed:
+            return "Mono10_Packed";
+        case PixelType_Gvsp_Mono12:
+            return "Mono12";
+        case PixelType_Gvsp_Mono12_Packed:
+            return "Mono12_Packed";
+        case PixelType_Gvsp_BayerGR8:
+            return "BayerGR8";
+        case PixelType_Gvsp_BayerRG8:
+            return "BayerRG8";
+        case PixelType_Gvsp_BayerGB8:
+            return "BayerGB8";
+        case PixelType_Gvsp_BayerBG8:
+            return "BayerBG8";
+        case PixelType_Gvsp_BayerRBGG8:
+            return "BayerRBGG8";
+        case PixelType_Gvsp_BayerGR10:
+            return "BayerGR10";
+        case PixelType_Gvsp_BayerRG10:
+            return "BayerRG10";
+        case PixelType_Gvsp_BayerGB10:
+            return "BayerGB10";
+        case PixelType_Gvsp_BayerBG10:
+            return "BayerBG10";
+        case PixelType_Gvsp_BayerGR10_Packed:
+            return "BayerGR10_Packed";
+        case PixelType_Gvsp_BayerRG10_Packed:
+            return "BayerRG10_Packed";
+        case PixelType_Gvsp_BayerGB10_Packed:
+            return "BayerGB10_Packed";
+        case PixelType_Gvsp_BayerBG10_Packed:
+            return "BayerBG10_Packed";
+        case PixelType_Gvsp_BayerGR12:
+            return "BayerGR12";
+        case PixelType_Gvsp_BayerRG12:
+            return "BayerRG12";
+        case PixelType_Gvsp_BayerGB12:
+            return "BayerGB12";
+        case PixelType_Gvsp_BayerBG12:
+            return "BayerBG12";
+        case PixelType_Gvsp_BayerGR12_Packed:
+            return "BayerGR12_Packed";
+        case PixelType_Gvsp_BayerRG12_Packed:
+            return "BayerRG12_Packed";
+        case PixelType_Gvsp_BayerGB12_Packed:
+            return "BayerGB12_Packed";
+        case PixelType_Gvsp_BayerBG12_Packed:
+            return "BayerBG12_Packed";
+        case PixelType_Gvsp_RGB8_Packed:
+            return "RGB8_Packed";
+        case PixelType_Gvsp_BGR8_Packed:
+            return "BGR8_Packed";
+        default: {
+            std::ostringstream oss;
+            oss << "0x" << std::hex << static_cast<unsigned int>(pixel_type);
+            return oss.str();
+        }
+    }
+}
+
+std::string EnumEntrySymbolic(CMvCamera& camera, const char* key, unsigned int value) {
+    MVCC_ENUMENTRY entry = {0};
+    entry.nValue = value;
+    const int ret = camera.GetEnumEntrySymbolic(key, &entry);
+    if (ret != MV_OK) {
+        return {};
+    }
+    return entry.chSymbolic;
+}
+
+bool EnumSupportsValue(const MVCC_ENUMVALUE& enum_value, unsigned int value) {
+    return std::find(
+        enum_value.nSupportValue,
+        enum_value.nSupportValue + enum_value.nSupportedNum,
+        value) != (enum_value.nSupportValue + enum_value.nSupportedNum);
+}
+
+std::vector<unsigned int> PixelFormatCandidates(StereoPixelFormatMode mode) {
+    switch (mode) {
+        case StereoPixelFormatMode::kMono8:
+            return {PixelType_Gvsp_Mono8};
+        case StereoPixelFormatMode::kBgr8:
+            return {PixelType_Gvsp_BGR8_Packed};
+        case StereoPixelFormatMode::kRgb8:
+            return {PixelType_Gvsp_RGB8_Packed};
+        case StereoPixelFormatMode::kRawPreferred:
+            return {
+                PixelType_Gvsp_BayerGR8,
+                PixelType_Gvsp_BayerRG8,
+                PixelType_Gvsp_BayerGB8,
+                PixelType_Gvsp_BayerBG8,
+                PixelType_Gvsp_BayerRBGG8,
+                PixelType_Gvsp_BayerGR10_Packed,
+                PixelType_Gvsp_BayerRG10_Packed,
+                PixelType_Gvsp_BayerGB10_Packed,
+                PixelType_Gvsp_BayerBG10_Packed,
+                PixelType_Gvsp_BayerGR10,
+                PixelType_Gvsp_BayerRG10,
+                PixelType_Gvsp_BayerGB10,
+                PixelType_Gvsp_BayerBG10,
+                PixelType_Gvsp_BayerGR12_Packed,
+                PixelType_Gvsp_BayerRG12_Packed,
+                PixelType_Gvsp_BayerGB12_Packed,
+                PixelType_Gvsp_BayerBG12_Packed,
+                PixelType_Gvsp_BayerGR12,
+                PixelType_Gvsp_BayerRG12,
+                PixelType_Gvsp_BayerGB12,
+                PixelType_Gvsp_BayerBG12,
+                PixelType_Gvsp_Mono8,
+                PixelType_Gvsp_Mono10_Packed,
+                PixelType_Gvsp_Mono10,
+                PixelType_Gvsp_Mono12_Packed,
+                PixelType_Gvsp_Mono12,
+                PixelType_Gvsp_BGR8_Packed,
+                PixelType_Gvsp_RGB8_Packed,
+            };
+    }
+
+    return {};
+}
+
+std::string PixelFormatModeToString(StereoPixelFormatMode mode) {
+    switch (mode) {
+        case StereoPixelFormatMode::kRawPreferred:
+            return "raw";
+        case StereoPixelFormatMode::kMono8:
+            return "mono8";
+        case StereoPixelFormatMode::kBgr8:
+            return "bgr8";
+        case StereoPixelFormatMode::kRgb8:
+            return "rgb8";
+    }
+
+    return "unknown";
+}
+
+unsigned int SelectPixelFormat(CMvCamera& camera, StereoPixelFormatMode mode) {
+    MVCC_ENUMVALUE pixel_formats = {0};
+    ThrowIfMvFailed("query PixelFormat", camera.GetEnumValue("PixelFormat", &pixel_formats));
+
+    const auto candidates = PixelFormatCandidates(mode);
+    for (const unsigned int candidate : candidates) {
+        if (EnumSupportsValue(pixel_formats, candidate)) {
+            return candidate;
+        }
+    }
+
+    if (mode == StereoPixelFormatMode::kRawPreferred && pixel_formats.nCurValue != 0) {
+        return pixel_formats.nCurValue;
+    }
+
+    std::ostringstream oss;
+    oss << "requested pixel format mode '" << PixelFormatModeToString(mode) << "' is not supported";
+    throw std::runtime_error(oss.str());
+}
+
+std::uint32_t CheckedBgrBufferSize(std::uint32_t width, std::uint32_t height) {
+    const std::uint64_t bytes = static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) * 3ULL;
+    if (bytes > static_cast<std::uint64_t>(UINT_MAX)) {
+        throw std::runtime_error("BGR destination buffer exceeds SDK conversion size limit");
+    }
+    return static_cast<std::uint32_t>(bytes);
+}
+
+std::uint32_t CheckedFrameLength(const MV_FRAME_OUT_INFO_EX& frame_info) {
+    const std::uint64_t bytes = FrameLengthBytes(frame_info);
+    if (bytes > static_cast<std::uint64_t>(UINT_MAX)) {
+        throw std::runtime_error("source frame exceeds SDK conversion size limit");
+    }
+    return static_cast<std::uint32_t>(bytes);
+}
+
+void ConvertFrameToBgr(CMvCamera& camera, const MV_FRAME_OUT& frame, cv::Mat& dst_image) {
+    const std::uint32_t width = FrameWidth(frame.stFrameInfo);
+    const std::uint32_t height = FrameHeight(frame.stFrameInfo);
+    if (width == 0 || height == 0) {
+        throw std::runtime_error("invalid frame dimensions");
+    }
+
+    if (frame.stFrameInfo.enPixelType == PixelType_Gvsp_BGR8_Packed) {
+        dst_image = cv::Mat(
+            static_cast<int>(height),
+            static_cast<int>(width),
+            CV_8UC3,
+            frame.pBufAddr).clone();
+        return;
+    }
+
+    dst_image.create(static_cast<int>(height), static_cast<int>(width), CV_8UC3);
+
+    MV_CC_PIXEL_CONVERT_PARAM_EX convert_param = {0};
+    convert_param.nWidth = width;
+    convert_param.nHeight = height;
+    convert_param.enSrcPixelType = frame.stFrameInfo.enPixelType;
+    convert_param.pSrcData = frame.pBufAddr;
+    convert_param.nSrcDataLen = CheckedFrameLength(frame.stFrameInfo);
+    convert_param.enDstPixelType = PixelType_Gvsp_BGR8_Packed;
+    convert_param.pDstBuffer = dst_image.data;
+    convert_param.nDstBufferSize = CheckedBgrBufferSize(width, height);
+
+    ThrowIfMvFailed("convert frame to BGR8", camera.ConvertPixelTypeEx(&convert_param));
+}
+
 struct CaptureResult {
     bool valid = false;
     std::uint32_t width = 0;
@@ -120,13 +347,18 @@ struct CaptureResult {
     std::int64_t sdk_host_timestamp = 0;
     std::chrono::steady_clock::time_point host_timestamp;
     std::string error_message;
+    std::string pixel_format;
+    std::uint64_t frame_bytes = 0;
+    double wait_frame_ms = 0.0;
+    double image_process_ms = 0.0;
+    double total_worker_ms = 0.0;
     cv::Mat bgr_image;
 };
 
 struct DeviceContext {
     CameraDescriptor descriptor;
+    StereoCaptureRuntimeInfo runtime_info;
     std::unique_ptr<CMvCamera> camera;
-    std::vector<unsigned char> raw_buffer;
     std::thread worker_thread;
     std::mutex mutex;
     std::condition_variable trigger_cv;
@@ -137,10 +369,34 @@ struct DeviceContext {
     CaptureResult last_result;
 };
 
-void ConfigureCamera(CMvCamera& camera, const StereoCameraSettings& settings) {
+void TuneTransport(CMvCamera& camera, const MV_CC_DEVICE_INFO& device_info) {
+    camera.SetImageNodeNum(kDefaultImageNodeNum);
+    if (device_info.nTLayerType != MV_GIGE_DEVICE) {
+        return;
+    }
+
+    unsigned int packet_size = 0;
+    if (camera.GetOptimalPacketSize(&packet_size) == MV_OK && packet_size > 0) {
+        TrySetIntValue(camera, "GevSCPSPacketSize", packet_size);
+    }
+}
+
+void ConfigureCamera(
+    CMvCamera& camera,
+    const MV_CC_DEVICE_INFO& device_info,
+    const StereoCameraSettings& settings,
+    StereoCaptureRuntimeInfo* runtime_info) {
+    TuneTransport(camera, device_info);
+    TrySetBoolValue(camera, "AcquisitionFrameRateEnable", false);
     ThrowIfMvFailed("set TriggerMode", camera.SetEnumValue("TriggerMode", 1));
     ThrowIfMvFailed("set TriggerSource", camera.SetEnumValue("TriggerSource", 7));
-    ThrowIfMvFailed("set PixelFormat", camera.SetEnumValue("PixelFormat", PixelType_Gvsp_RGB8_Packed));
+
+    const unsigned int pixel_format = SelectPixelFormat(camera, settings.pixel_format);
+    ThrowIfMvFailed("set PixelFormat", camera.SetEnumValue("PixelFormat", pixel_format));
+    if (runtime_info) {
+        const std::string symbolic = EnumEntrySymbolic(camera, "PixelFormat", pixel_format);
+        runtime_info->pixel_format = symbolic.empty() ? PixelTypeToString(static_cast<MvGvspPixelType>(pixel_format)) : symbolic;
+    }
 
     if (settings.enable_gamma) {
         TrySetBoolValue(camera, "GammaEnable", true);
@@ -230,6 +486,8 @@ struct StereoCapture::Impl {
     bool running = false;
     std::uint64_t capture_counter = 0;
     std::array<CameraDescriptor, 2> active_cameras;
+    std::array<StereoCaptureRuntimeInfo, 2> runtime_info;
+    StereoCaptureTimingInfo last_capture_timing;
     std::array<std::unique_ptr<DeviceContext>, 2> devices;
 
     void Initialize() {
@@ -256,20 +514,22 @@ struct StereoCapture::Impl {
 
             auto context = std::make_unique<DeviceContext>();
             context->descriptor = descriptor;
+            context->runtime_info.serial_number = descriptor.serial_number;
             context->camera = std::make_unique<CMvCamera>();
             ThrowIfMvFailed(
                 "open camera " + descriptor.serial_number,
                 context->camera->Open(device_info));
-            ConfigureCamera(*context->camera, config.camera_settings);
+            ConfigureCamera(*context->camera, *device_info, config.camera_settings, &context->runtime_info);
 
             MVCC_INTVALUE_EX payload_size = {0};
             ThrowIfMvFailed(
                 "query PayloadSize for " + descriptor.serial_number,
                 context->camera->GetIntValue("PayloadSize", &payload_size));
-            context->raw_buffer.resize(static_cast<std::size_t>(payload_size.nCurValue));
+            context->runtime_info.payload_size = static_cast<std::uint64_t>(payload_size.nCurValue);
 
             devices[camera_index] = std::move(context);
             active_cameras[camera_index] = descriptor;
+            runtime_info[camera_index] = devices[camera_index]->runtime_info;
         }
 
         initialized = true;
@@ -293,33 +553,55 @@ struct StereoCapture::Impl {
             CaptureResult result;
             result.host_timestamp = std::chrono::steady_clock::now();
 
-            MV_FRAME_OUT_INFO_EX frame_info = {0};
-            const int ret = context->camera->GetOneFrameTimeout(
-                context->raw_buffer.data(),
-                static_cast<unsigned int>(context->raw_buffer.size()),
-                &frame_info,
-                config.camera_settings.trigger_timeout_ms);
-            if (ret == MV_OK) {
-                cv::Mat rgb(
-                    static_cast<int>(frame_info.nHeight),
-                    static_cast<int>(frame_info.nWidth),
-                    CV_8UC3,
-                    context->raw_buffer.data());
-                cv::cvtColor(rgb, result.bgr_image, cv::COLOR_RGB2BGR);
+            const auto worker_start = std::chrono::steady_clock::now();
+            MV_FRAME_OUT frame = {0};
+            const int ret = context->camera->GetImageBuffer(&frame, config.camera_settings.trigger_timeout_ms);
+            const auto frame_ready = std::chrono::steady_clock::now();
+            result.wait_frame_ms =
+                std::chrono::duration<double, std::milli>(frame_ready - worker_start).count();
 
-                result.valid = true;
-                result.width = frame_info.nWidth;
-                result.height = frame_info.nHeight;
+            if (ret == MV_OK) {
+                const MV_FRAME_OUT_INFO_EX& frame_info = frame.stFrameInfo;
+                result.host_timestamp = frame_ready;
+                result.width = FrameWidth(frame_info);
+                result.height = FrameHeight(frame_info);
                 result.frame_index = frame_info.nFrameNum;
                 result.device_timestamp =
                     (static_cast<std::uint64_t>(frame_info.nDevTimeStampHigh) << 32)
                     | frame_info.nDevTimeStampLow;
                 result.sdk_host_timestamp = frame_info.nHostTimeStamp;
+                result.pixel_format = PixelTypeToString(frame_info.enPixelType);
+                result.frame_bytes = FrameLengthBytes(frame_info);
+
+                try {
+                    if (config.camera_settings.include_image_data) {
+                        const auto image_process_start = std::chrono::steady_clock::now();
+                        ConvertFrameToBgr(*context->camera, frame, result.bgr_image);
+                        const auto image_process_end = std::chrono::steady_clock::now();
+                        result.image_process_ms = std::chrono::duration<double, std::milli>(
+                            image_process_end - image_process_start)
+                            .count();
+                    }
+                    result.valid = true;
+                } catch (const std::exception& ex) {
+                    result.error_message = ex.what();
+                }
+
+                const int free_ret = context->camera->FreeImageBuffer(&frame);
+                if (free_ret != MV_OK && result.error_message.empty()) {
+                    result.error_message = FormatMvError(
+                        "free frame buffer on camera[" + std::to_string(camera_index) + "]",
+                        free_ret);
+                    result.valid = false;
+                }
             } else {
                 result.error_message = FormatMvError(
                     "capture frame on camera[" + std::to_string(camera_index) + "]",
                     ret);
             }
+            result.total_worker_ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - worker_start)
+                .count();
 
             {
                 std::lock_guard<std::mutex> lock(context->mutex);
@@ -339,6 +621,7 @@ struct StereoCapture::Impl {
         }
 
         capture_counter = 0;
+        last_capture_timing = {};
         for (std::size_t camera_index = 0; camera_index < devices.size(); ++camera_index) {
             DeviceContext& context = *devices[camera_index];
             context.shutdown_requested = false;
@@ -360,6 +643,7 @@ struct StereoCapture::Impl {
             throw std::runtime_error("StereoCapture::Capture called before Start");
         }
 
+        const auto capture_start = std::chrono::steady_clock::now();
         const std::uint64_t capture_seq = ++capture_counter;
         StereoFrame stereo_frame;
         stereo_frame.capture_index = capture_seq;
@@ -374,6 +658,7 @@ struct StereoCapture::Impl {
             context.trigger_cv.notify_one();
         }
 
+        const auto trigger_start = std::chrono::steady_clock::now();
         stereo_frame.trigger_timestamp = std::chrono::steady_clock::now();
         for (const auto& device : devices) {
             DeviceContext& context = *device;
@@ -381,6 +666,7 @@ struct StereoCapture::Impl {
                 "software trigger on " + context.descriptor.serial_number,
                 context.camera->CommandExecute("TriggerSoftware"));
         }
+        const auto trigger_end = std::chrono::steady_clock::now();
 
         for (std::size_t camera_index = 0; camera_index < devices.size(); ++camera_index) {
             DeviceContext& context = *devices[camera_index];
@@ -388,7 +674,16 @@ struct StereoCapture::Impl {
             context.completion_cv.wait(lock, [&]() {
                 return context.completed_capture_seq >= capture_seq;
             });
+        }
 
+        const auto assemble_start = std::chrono::steady_clock::now();
+        StereoCaptureTimingInfo timing_info;
+        timing_info.capture_index = capture_seq;
+        timing_info.trigger_ms =
+            std::chrono::duration<double, std::milli>(trigger_end - trigger_start).count();
+        for (std::size_t camera_index = 0; camera_index < devices.size(); ++camera_index) {
+            DeviceContext& context = *devices[camera_index];
+            std::lock_guard<std::mutex> lock(context.mutex);
             CameraFrame frame;
             frame.camera_index = camera_index;
             frame.serial_number = context.descriptor.serial_number;
@@ -400,9 +695,21 @@ struct StereoCapture::Impl {
             frame.host_timestamp = context.last_result.host_timestamp;
             frame.valid = context.last_result.valid;
             frame.error_message = context.last_result.error_message;
-            frame.bgr_image = context.last_result.bgr_image.clone();
+            frame.bgr_image = context.last_result.bgr_image;
             stereo_frame.views[camera_index] = std::move(frame);
+
+            timing_info.cameras[camera_index].pixel_format = context.last_result.pixel_format;
+            timing_info.cameras[camera_index].frame_bytes = context.last_result.frame_bytes;
+            timing_info.cameras[camera_index].wait_frame_ms = context.last_result.wait_frame_ms;
+            timing_info.cameras[camera_index].image_process_ms = context.last_result.image_process_ms;
+            timing_info.cameras[camera_index].total_worker_ms = context.last_result.total_worker_ms;
         }
+        const auto capture_end = std::chrono::steady_clock::now();
+        timing_info.assemble_ms =
+            std::chrono::duration<double, std::milli>(capture_end - assemble_start).count();
+        timing_info.total_capture_ms =
+            std::chrono::duration<double, std::milli>(capture_end - capture_start).count();
+        last_capture_timing = timing_info;
 
         return stereo_frame;
     }
@@ -497,6 +804,14 @@ bool StereoCapture::IsRunning() const {
 
 std::array<CameraDescriptor, 2> StereoCapture::ActiveCameras() const {
     return impl_->active_cameras;
+}
+
+std::array<StereoCaptureRuntimeInfo, 2> StereoCapture::RuntimeInfo() const {
+    return impl_->runtime_info;
+}
+
+StereoCaptureTimingInfo StereoCapture::LastCaptureTiming() const {
+    return impl_->last_capture_timing;
 }
 
 }  // namespace newnewhand

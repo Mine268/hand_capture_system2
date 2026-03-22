@@ -163,6 +163,10 @@ int CMvCamera::SetEnumValue(IN const char* strKey, IN unsigned int nValue) {
     return MV_CC_SetEnumValue(m_hDevHandle, strKey, nValue);
 }
 
+int CMvCamera::GetEnumEntrySymbolic(IN const char* strKey, IN OUT MVCC_ENUMENTRY* pstEnumEntry) {
+    return MV_CC_GetEnumEntrySymbolic(m_hDevHandle, strKey, pstEnumEntry);
+}
+
 int CMvCamera::SetEnumValueByString(IN const char* strKey, IN const char* sValue) {
     return MV_CC_SetEnumValueByString(m_hDevHandle, strKey, sValue);
 }
@@ -236,6 +240,10 @@ int CMvCamera::SetNetTransMode(unsigned int nType) {
 
 int CMvCamera::ConvertPixelType(MV_CC_PIXEL_CONVERT_PARAM* pstCvtParam) {
     return MV_CC_ConvertPixelType(m_hDevHandle, pstCvtParam);
+}
+
+int CMvCamera::ConvertPixelTypeEx(MV_CC_PIXEL_CONVERT_PARAM_EX* pstCvtParam) {
+    return MV_CC_ConvertPixelTypeEx(m_hDevHandle, pstCvtParam);
 }
 
 int CMvCamera::SaveImage(MV_SAVE_IMAGE_PARAM_EX* pstParam) {

@@ -6,6 +6,7 @@
 #include "newnewhand/calibration/stereo_calibrator.h"
 #include "newnewhand/fusion/stereo_hand_fuser.h"
 #include "newnewhand/pipeline/stereo_single_view_hand_pose_pipeline.h"
+#include "newnewhand/slam/stereo_visual_odometry.h"
 
 namespace newnewhand {
 
@@ -24,7 +25,8 @@ public:
     void SaveFrame(
         const StereoFrame& raw_stereo_frame,
         const StereoSingleViewPoseFrame& stereo_frame,
-        const StereoFusedHandPoseFrame& fused_frame);
+        const StereoFusedHandPoseFrame& fused_frame,
+        const StereoCameraTrackingResult* tracking = nullptr);
 
 private:
     void WriteManifest() const;
@@ -37,6 +39,7 @@ private:
     void WriteFrameYaml(
         const StereoSingleViewPoseFrame& stereo_frame,
         const StereoFusedHandPoseFrame& fused_frame,
+        const StereoCameraTrackingResult* tracking,
         const std::filesystem::path& output_path) const;
     void WriteHandPoseArray(
         cv::FileStorage& fs,
@@ -46,6 +49,10 @@ private:
         cv::FileStorage& fs,
         const std::string& name,
         const std::vector<FusedHandPose>& hands) const;
+    void WriteTrackingResult(
+        cv::FileStorage& fs,
+        const std::string& name,
+        const StereoCameraTrackingResult& tracking) const;
 
     OfflineSequenceWriterConfig config_;
     StereoCalibrationResult calibration_;

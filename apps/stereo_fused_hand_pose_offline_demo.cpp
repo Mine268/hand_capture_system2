@@ -175,8 +175,8 @@ DemoOptions ParseArgs(int argc, char** argv) {
                 << "  --detector_model <path>   default: " << DefaultDetectorModelPath() << "\n"
                 << "  --wilor_model <path>      default: " << DefaultWilorModelPath() << "\n"
                 << "  --mano_model <path>       default: " << DefaultManoModelPath() << "\n"
-                << "  --output_dir <dir>        default: results/stereo_fused_hand_pose_offline\n"
-                << "  --offline_dump_dir <dir>  default: disabled\n"
+                << "  --output_dir <dir>        default: results/stereo_fused_hand_pose_offline (full replay package)\n"
+                << "  --offline_dump_dir <dir>  default: disabled (optional extra copy of the replay package)\n"
                 << "  --slam_backend <name>     default: stella (stella|legacy)\n"
                 << "  --stella_vocab <path>     default: disabled\n"
                 << "  --stella_config_dump <path>  default: disabled\n"
@@ -845,15 +845,26 @@ int main(int argc, char** argv) {
             legacy_slam_tracker = std::make_unique<newnewhand::StereoVisualOdometry>(std::move(slam_config));
         }
 
-        std::unique_ptr<newnewhand::OfflineSequenceWriter> offline_writer;
-        if (!options.offline_dump_dir.empty()) {
+        std::vector<std::unique_ptr<newnewhand::OfflineSequenceWriter>> offline_writers;
+        auto add_offline_writer = [&](const std::filesystem::path& output_root) {
+            if (output_root.empty()) {
+                return;
+            }
             newnewhand::OfflineSequenceWriterConfig writer_config;
-            writer_config.output_root = options.offline_dump_dir;
+            writer_config.output_root = output_root;
             writer_config.calibration_source_path = calibration_path;
             writer_config.save_raw_images = true;
             writer_config.save_overlay_images = true;
-            offline_writer = std::make_unique<newnewhand::OfflineSequenceWriter>(writer_config, calibration);
-            offline_writer->Initialize();
+            auto writer = std::make_unique<newnewhand::OfflineSequenceWriter>(writer_config, calibration);
+            writer->Initialize();
+            offline_writers.push_back(std::move(writer));
+        };
+        if (options.save) {
+            add_offline_writer(options.output_dir);
+        }
+        if (!options.offline_dump_dir.empty()
+            && std::filesystem::path(options.offline_dump_dir) != std::filesystem::path(options.output_dir)) {
+            add_offline_writer(options.offline_dump_dir);
         }
 
         const cv::aruco::Dictionary dictionary =
@@ -1062,21 +1073,8 @@ int main(int argc, char** argv) {
                     << "\n";
             }
 
-            if (options.save) {
-                for (std::size_t i = 0; i < stereo_frame.views.size(); ++i) {
-                    if (!stereo_frame.views[i].overlay_image.empty()) {
-                        SaveImage(
-                            options.output_dir,
-                            "cam" + std::to_string(i),
-                            fused_frame.capture_index,
-                            stereo_frame.views[i].overlay_image);
-                    }
-                }
-                SaveFusedYaml(fuser, fused_frame, options.output_dir);
-            }
-
-            if (offline_writer) {
-                offline_writer->SaveFrame(raw_stereo_frame, stereo_frame, fused_frame);
+            for (auto& offline_writer : offline_writers) {
+                offline_writer->SaveFrame(raw_stereo_frame, stereo_frame, fused_frame, &tracking_result);
             }
 
             if (options.glfw_view) {

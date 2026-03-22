@@ -23,6 +23,16 @@ cv::Mat ToColumnMat(const float* values, int count) {
     return mat;
 }
 
+cv::Mat ToTrajectoryMat(const std::vector<cv::Vec3f>& points) {
+    cv::Mat mat(static_cast<int>(points.size()), 3, CV_32F);
+    for (int i = 0; i < mat.rows; ++i) {
+        mat.at<float>(i, 0) = points[static_cast<std::size_t>(i)][0];
+        mat.at<float>(i, 1) = points[static_cast<std::size_t>(i)][1];
+        mat.at<float>(i, 2) = points[static_cast<std::size_t>(i)][2];
+    }
+    return mat;
+}
+
 std::string CaptureStem(std::uint64_t capture_index) {
     std::ostringstream oss;
     oss << std::setw(6) << std::setfill('0') << capture_index;
@@ -63,7 +73,8 @@ void OfflineSequenceWriter::Initialize() {
 void OfflineSequenceWriter::SaveFrame(
     const StereoFrame& raw_stereo_frame,
     const StereoSingleViewPoseFrame& stereo_frame,
-    const StereoFusedHandPoseFrame& fused_frame) {
+    const StereoFusedHandPoseFrame& fused_frame,
+    const StereoCameraTrackingResult* tracking) {
     if (!initialized_) {
         Initialize();
     }
@@ -86,7 +97,7 @@ void OfflineSequenceWriter::SaveFrame(
 
     const std::filesystem::path yaml_path =
         config_.output_root / "frames" / (CaptureStem(fused_frame.capture_index) + ".yaml");
-    WriteFrameYaml(stereo_frame, fused_frame, yaml_path);
+    WriteFrameYaml(stereo_frame, fused_frame, tracking, yaml_path);
 }
 
 void OfflineSequenceWriter::WriteManifest() const {
@@ -94,10 +105,12 @@ void OfflineSequenceWriter::WriteManifest() const {
     if (!fs.isOpened()) {
         throw std::runtime_error("failed to open offline manifest for writing");
     }
-    fs << "format_version" << 1;
+    fs << "format_version" << 2;
+    fs << "package_type" << "stereo_fused_hand_pose_replay";
     fs << "calibration_file" << "calibration/stereo_calibration.yaml";
     fs << "has_raw_images" << static_cast<int>(config_.save_raw_images);
     fs << "has_overlay_images" << static_cast<int>(config_.save_overlay_images);
+    fs << "has_tracking_data" << 1;
     fs << "frames_dir" << "frames";
 }
 
@@ -122,6 +135,7 @@ void OfflineSequenceWriter::SaveViewImage(
 void OfflineSequenceWriter::WriteFrameYaml(
     const StereoSingleViewPoseFrame& stereo_frame,
     const StereoFusedHandPoseFrame& fused_frame,
+    const StereoCameraTrackingResult* tracking,
     const std::filesystem::path& output_path) const {
     cv::FileStorage fs(output_path.string(), cv::FileStorage::WRITE);
     if (!fs.isOpened()) {
@@ -156,6 +170,9 @@ void OfflineSequenceWriter::WriteFrameYaml(
     fs << "]";
 
     WriteFusedHandArray(fs, "fused_hands", fused_frame.hands);
+    if (tracking) {
+        WriteTrackingResult(fs, "tracking", *tracking);
+    }
 }
 
 void OfflineSequenceWriter::WriteHandPoseArray(
@@ -211,6 +228,33 @@ void OfflineSequenceWriter::WriteFusedHandArray(
         fs << "}";
     }
     fs << "]";
+}
+
+void OfflineSequenceWriter::WriteTrackingResult(
+    cv::FileStorage& fs,
+    const std::string& name,
+    const StereoCameraTrackingResult& tracking) const {
+    fs << name << "{";
+    fs << "capture_index" << static_cast<double>(tracking.capture_index);
+    fs << "initialized" << static_cast<int>(tracking.initialized);
+    fs << "tracking_ok" << static_cast<int>(tracking.tracking_ok);
+    fs << "reinitialized" << static_cast<int>(tracking.reinitialized);
+    fs << "left_keypoints" << tracking.left_keypoints;
+    fs << "stereo_points" << tracking.stereo_points;
+    fs << "valid_disparity_keypoints" << tracking.valid_disparity_keypoints;
+    fs << "invalid_nonfinite_disparity" << tracking.invalid_nonfinite_disparity;
+    fs << "invalid_low_disparity" << tracking.invalid_low_disparity;
+    fs << "invalid_depth" << tracking.invalid_depth;
+    fs << "valid_disparity_pixels" << tracking.valid_disparity_pixels;
+    fs << "min_valid_disparity" << tracking.min_valid_disparity;
+    fs << "max_valid_disparity" << tracking.max_valid_disparity;
+    fs << "matched_points" << tracking.matched_points;
+    fs << "tracking_inliers" << tracking.tracking_inliers;
+    fs << "rotation_world_from_cam0" << cv::Mat(tracking.rotation_world_from_cam0);
+    fs << "camera_center_world" << ToColumnMat(tracking.camera_center_world);
+    fs << "status_message" << tracking.status_message;
+    fs << "trajectory_world" << ToTrajectoryMat(tracking.trajectory_world);
+    fs << "}";
 }
 
 }  // namespace newnewhand

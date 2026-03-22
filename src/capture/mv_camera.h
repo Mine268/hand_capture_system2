@@ -48,6 +48,7 @@ public:
 
     int GetEnumValue(IN const char* strKey, OUT MVCC_ENUMVALUE* pEnumValue);
     int SetEnumValue(IN const char* strKey, IN unsigned int nValue);
+    int GetEnumEntrySymbolic(IN const char* strKey, IN OUT MVCC_ENUMENTRY* pstEnumEntry);
     int SetEnumValueByString(IN const char* strKey, IN const char* sValue);
 
     int GetFloatValue(IN const char* strKey, OUT MVCC_FLOATVALUE* pFloatValue);
@@ -75,6 +76,7 @@ public:
     int SetNetTransMode(unsigned int nType);
 
     int ConvertPixelType(MV_CC_PIXEL_CONVERT_PARAM* pstCvtParam);
+    int ConvertPixelTypeEx(MV_CC_PIXEL_CONVERT_PARAM_EX* pstCvtParam);
     int SaveImage(MV_SAVE_IMAGE_PARAM_EX* pstParam);
 
 private:
