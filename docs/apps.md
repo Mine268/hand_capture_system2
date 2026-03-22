@@ -371,3 +371,48 @@ Notes:
 - the offline demo uses heavier stereo VO defaults than the live demos: more ORB features, larger stereo search, and more PnP iterations
 - if the board is visible, world pose comes from ChArUco; if the board is missing, the app can seed SLAM-to-world alignment from the latest valid calibrated pose and then use aligned SLAM fallback
 - `--offline_dump_dir <dir>` re-exports raw images, overlays, calibration, mono results and fused results for the processed sequence
+
+Recommended end-to-end workflow:
+
+1. Capture a stereo video package:
+
+```bash
+./build/stereo_offline_capture_app \
+  --mode capture \
+  --output_dir offline_capture/session_001 \
+  --calibration resources/stereo_calibration.yaml \
+  --fps 30 \
+  --frames 300 \
+  --video_codec MJPG \
+  --gain -1 \
+  --no_preview
+```
+
+2. Decode the captured video package into an image-sequence package:
+
+```bash
+./build/stereo_offline_capture_app \
+  --mode decode \
+  --input_dir offline_capture/session_001 \
+  --output_dir offline_capture/session_001_images \
+  --image_format png
+```
+
+3. Run offline fused processing on the decoded image sequence:
+
+```bash
+./build_stella/stereo_fused_hand_pose_offline_demo \
+  --input_dir offline_capture/session_001_images \
+  --calibration resources/stereo_calibration.yaml \
+  --slam_backend stella \
+  --stella_config_dump debug/stella_session_001.yaml \
+  --cpu \
+  --dictionary DICT_APRILTAG_36h11 \
+  --squares_x 5 \
+  --squares_y 7 \
+  --square_length_m 0.028 \
+  --marker_length_m 0.021 \
+  --verbose \
+  --no_preview \
+  --no_glfw_view
+```

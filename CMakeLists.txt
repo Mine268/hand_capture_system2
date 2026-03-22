@@ -162,6 +162,26 @@ if(NEWHAND_ENABLE_STELLA_VSLAM)
             ${OpenCV_LIBS}
     )
     target_compile_definitions(newnewhand_slam_stella PUBLIC NEWNEWHAND_HAVE_STELLA_VSLAM=1)
+
+    add_library(newnewhand_slam_optimization STATIC
+        src/slam/offline_camera_trajectory_optimizer.cpp
+    )
+    target_include_directories(newnewhand_slam_optimization
+        PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third/g2o
+    )
+    target_link_libraries(newnewhand_slam_optimization
+        PUBLIC
+            newnewhand_slam
+            g2o::core
+            g2o::stuff
+            g2o::types_slam3d
+            g2o::solver_csparse
+            g2o::csparse_extension
+            ${OpenCV_LIBS}
+    )
+    target_compile_definitions(newnewhand_slam_optimization PUBLIC NEWNEWHAND_HAVE_STELLA_VSLAM=1)
 endif()
 
 add_library(newnewhand_io STATIC
@@ -228,6 +248,17 @@ if(BUILD_DEMOS)
             newnewhand_capture
     )
     set_target_properties(stereo_capture_demo PROPERTIES
+        BUILD_RPATH "${MVS_ROOT}/lib/64"
+    )
+
+    add_executable(stereo_capture_benchmark_app
+        apps/stereo_capture_benchmark_app.cpp
+    )
+    target_link_libraries(stereo_capture_benchmark_app
+        PRIVATE
+            newnewhand_capture
+    )
+    set_target_properties(stereo_capture_benchmark_app PROPERTIES
         BUILD_RPATH "${MVS_ROOT}/lib/64"
     )
 
@@ -380,6 +411,7 @@ if(BUILD_DEMOS)
         target_link_libraries(stereo_fused_hand_pose_offline_demo
             PRIVATE
                 newnewhand_slam_stella
+                newnewhand_slam_optimization
         )
     endif()
     set_target_properties(stereo_fused_hand_pose_offline_demo PROPERTIES

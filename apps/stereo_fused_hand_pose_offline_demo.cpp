@@ -31,6 +31,7 @@
 #include "newnewhand/io/offline_sequence_writer.h"
 #include "newnewhand/pipeline/stereo_single_view_hand_pose_pipeline.h"
 #include "newnewhand/render/glfw_scene_viewer.h"
+#include "newnewhand/slam/offline_camera_trajectory_optimizer.h"
 #include "newnewhand/slam/stereo_visual_odometry.h"
 #ifdef NEWNEWHAND_HAVE_STELLA_VSLAM
 #include "newnewhand/slam/stella_vslam_tracker.h"
@@ -923,11 +924,10 @@ int main(int argc, char** argv) {
         SlamAlignmentState slam_alignment_state;
         LastCalibratedPoseState last_calibrated_pose_state;
         HybridTrackingState hybrid_tracking_state;
-        double processing_fps = 0.0;
-        auto previous_loop_time = std::chrono::steady_clock::now();
+        std::vector<newnewhand::OfflineCameraTrajectorySample> trajectory_samples;
+        trajectory_samples.reserve(image_pairs.size());
 
         for (std::size_t pair_index = 0; pair_index < image_pairs.size(); ++pair_index) {
-            const auto loop_start = std::chrono::steady_clock::now();
             const std::uint64_t capture_index =
                 ParseCaptureIndexFromPath(image_pairs[pair_index].left_path, pair_index + 1);
             auto raw_stereo_frame = LoadStereoFrame(image_pairs[pair_index], capture_index, calibration);
@@ -938,7 +938,6 @@ int main(int argc, char** argv) {
                 right_map_x,
                 right_map_y);
 
-            auto stereo_frame = pose_pipeline.Estimate(undistorted_stereo_frame);
             newnewhand::StereoCameraTrackingResult slam_result;
             if (use_stella_backend) {
 #ifdef NEWNEWHAND_HAVE_STELLA_VSLAM
@@ -954,15 +953,65 @@ int main(int argc, char** argv) {
                 undistorted_left_camera_matrix,
                 undistorted_zero_dist_coeffs,
                 &previous_pose_state);
-            auto tracking_result = ResolveHybridTrackingResult(
+            auto initial_tracking_result = ResolveHybridTrackingResult(
                 board_detection,
                 slam_result,
-                stereo_frame.capture_index,
-                stereo_frame.trigger_timestamp,
+                raw_stereo_frame.capture_index,
+                raw_stereo_frame.trigger_timestamp,
                 slam_alignment_state,
                 last_calibrated_pose_state,
                 hybrid_tracking_state);
+
+            newnewhand::OfflineCameraTrajectorySample sample;
+            sample.capture_index = raw_stereo_frame.capture_index;
+            sample.trigger_timestamp = raw_stereo_frame.trigger_timestamp;
+            sample.initial_tracking_result = initial_tracking_result;
+            sample.slam_tracking_result = slam_result;
+            sample.has_charuco_pose = board_detection.detected;
+            sample.charuco_num_corners = board_detection.num_charuco_corners;
+            sample.charuco_reprojection_error_px = board_detection.reprojection_error_px;
+            sample.charuco_rotation_world_from_cam0 = board_detection.rotation_world_from_cam0;
+            sample.charuco_camera_center_world = board_detection.camera_center_world;
+            trajectory_samples.push_back(std::move(sample));
+        }
+
+        newnewhand::OfflineCameraTrajectoryOptimizerConfig optimizer_config;
+        optimizer_config.verbose_logging = options.verbose;
+        optimizer_config.slam_translation_sigma_m = 0.01;
+        optimizer_config.slam_rotation_sigma_deg = 0.8;
+        optimizer_config.charuco_translation_sigma_m = 0.002;
+        optimizer_config.charuco_rotation_sigma_deg = 0.25;
+        optimizer_config.min_charuco_corners = 6;
+        optimizer_config.max_charuco_reprojection_error_px = 4.0f;
+        newnewhand::OfflineCameraTrajectoryOptimizer optimizer(optimizer_config);
+        const auto optimized_trajectory = optimizer.Optimize(trajectory_samples);
+
+        double processing_fps = 0.0;
+        auto previous_loop_time = std::chrono::steady_clock::now();
+        PreviousPoseState preview_pose_state;
+
+        for (std::size_t pair_index = 0; pair_index < image_pairs.size(); ++pair_index) {
+            const auto loop_start = std::chrono::steady_clock::now();
+            const std::uint64_t capture_index = trajectory_samples[pair_index].capture_index;
+            auto raw_stereo_frame = LoadStereoFrame(image_pairs[pair_index], capture_index, calibration);
+            auto undistorted_stereo_frame = UndistortStereoFrame(
+                raw_stereo_frame,
+                left_map_x,
+                left_map_y,
+                right_map_x,
+                right_map_y);
+
+            auto stereo_frame = pose_pipeline.Estimate(undistorted_stereo_frame);
             auto fused_frame = fuser.Fuse(stereo_frame);
+            const auto& board_sample = trajectory_samples[pair_index];
+            BoardDetectionResult board_detection = EstimateBoardPoseInLeftCamera(
+                undistorted_stereo_frame.views[0].bgr_image,
+                board,
+                detector,
+                undistorted_left_camera_matrix,
+                undistorted_zero_dist_coeffs,
+                &preview_pose_state);
+            const auto& tracking_result = optimized_trajectory.optimized_tracking_results.at(pair_index);
 
             if (board_detection.detected && !stereo_frame.views[0].overlay_image.empty()) {
                 cv::aruco::drawDetectedMarkers(
@@ -998,21 +1047,17 @@ int main(int argc, char** argv) {
                 std::cerr
                     << "[offline-fused] capture=" << tracking_result.capture_index
                     << " status=" << tracking_result.status_message
-                    << " board_detected=" << (board_detection.detected ? 1 : 0)
-                    << " slam_initialized=" << (slam_result.initialized ? 1 : 0)
-                    << " slam_ok=" << (slam_result.tracking_ok ? 1 : 0)
-                    << " slam_reinit=" << (slam_result.reinitialized ? 1 : 0)
-                    << " slam_aligned=" << (slam_alignment_state.has_alignment ? 1 : 0)
-                    << " slam_seeded_from_last_calib="
-                    << (slam_alignment_state.seeded_from_last_calibrated_pose ? 1 : 0)
-                    << " last_calib_capture="
-                    << (last_calibrated_pose_state.has_pose
-                            ? static_cast<long long>(last_calibrated_pose_state.capture_index)
-                            : -1LL)
+                    << " optimized_vertices=" << optimized_trajectory.num_vertices
+                    << " optimized_slam_edges=" << optimized_trajectory.num_slam_edges
+                    << " optimized_charuco_priors=" << optimized_trajectory.num_charuco_priors
+                    << " board_detected=" << (board_sample.has_charuco_pose ? 1 : 0)
+                    << " slam_initialized=" << (board_sample.slam_tracking_result.initialized ? 1 : 0)
+                    << " slam_ok=" << (board_sample.slam_tracking_result.tracking_ok ? 1 : 0)
+                    << " slam_reinit=" << (board_sample.slam_tracking_result.reinitialized ? 1 : 0)
                     << " hands=" << fused_frame.hands.size()
-                    << " corners=" << board_detection.num_charuco_corners
-                    << " slam_match=" << slam_result.matched_points
-                    << " slam_inlier=" << slam_result.tracking_inliers
+                    << " corners=" << board_sample.charuco_num_corners
+                    << " slam_match=" << board_sample.slam_tracking_result.matched_points
+                    << " slam_inlier=" << board_sample.slam_tracking_result.tracking_inliers
                     << " fps=" << processing_fps
                     << "\n";
             }
