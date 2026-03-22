@@ -1,11 +1,15 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
+#include <deque>
+#include <exception>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -39,6 +43,37 @@ struct ReplayFrame {
     newnewhand::StereoFusedHandPoseFrame fused_frame;
     std::optional<newnewhand::StereoCameraTrackingResult> tracking_result;
 };
+
+struct ReplayQueueState {
+    std::mutex mutex;
+    std::condition_variable cv_not_empty;
+    std::condition_variable cv_not_full;
+    std::deque<ReplayFrame> queue;
+    bool stop_requested = false;
+    bool loading_finished = false;
+    std::exception_ptr loader_error;
+};
+
+struct ReplayLoaderHandle {
+    ReplayQueueState* queue_state = nullptr;
+    std::thread thread;
+
+    ~ReplayLoaderHandle() {
+        if (queue_state) {
+            {
+                std::lock_guard<std::mutex> lock(queue_state->mutex);
+                queue_state->stop_requested = true;
+            }
+            queue_state->cv_not_empty.notify_all();
+            queue_state->cv_not_full.notify_all();
+        }
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+};
+
+constexpr std::size_t kReplayQueueCapacity = 8;
 
 DemoOptions ParseArgs(int argc, char** argv) {
     DemoOptions options;
@@ -336,6 +371,90 @@ ReplayFrame LoadReplayFrame(const std::filesystem::path& yaml_path) {
     return frame;
 }
 
+void RethrowLoaderErrorLocked(const ReplayQueueState& state) {
+    if (state.loader_error) {
+        std::rethrow_exception(state.loader_error);
+    }
+}
+
+void ReplayLoaderWorker(
+    std::vector<std::filesystem::path> frame_paths,
+    ReplayQueueState* queue_state,
+    bool verbose) {
+    try {
+        for (const auto& frame_path : frame_paths) {
+            ReplayFrame frame = LoadReplayFrame(frame_path);
+            {
+                std::unique_lock<std::mutex> lock(queue_state->mutex);
+                queue_state->cv_not_full.wait(lock, [&]() {
+                    return queue_state->stop_requested
+                        || queue_state->queue.size() < kReplayQueueCapacity;
+                });
+                if (queue_state->stop_requested) {
+                    break;
+                }
+                queue_state->queue.push_back(std::move(frame));
+            }
+            queue_state->cv_not_empty.notify_one();
+        }
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(queue_state->mutex);
+        queue_state->loader_error = std::current_exception();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(queue_state->mutex);
+        queue_state->loading_finished = true;
+    }
+    queue_state->cv_not_empty.notify_all();
+    queue_state->cv_not_full.notify_all();
+    if (verbose) {
+        std::cerr << "[replay] loader finished\n";
+    }
+}
+
+std::optional<ReplayFrame> WaitPopReplayFrame(ReplayQueueState* queue_state) {
+    std::unique_lock<std::mutex> lock(queue_state->mutex);
+    queue_state->cv_not_empty.wait(lock, [&]() {
+        return queue_state->stop_requested
+            || queue_state->loading_finished
+            || !queue_state->queue.empty()
+            || queue_state->loader_error;
+    });
+    RethrowLoaderErrorLocked(*queue_state);
+    if (queue_state->queue.empty()) {
+        return std::nullopt;
+    }
+
+    ReplayFrame frame = std::move(queue_state->queue.front());
+    queue_state->queue.pop_front();
+    lock.unlock();
+    queue_state->cv_not_full.notify_one();
+    return frame;
+}
+
+std::optional<ReplayFrame> TryPopReplayFrame(ReplayQueueState* queue_state) {
+    std::unique_lock<std::mutex> lock(queue_state->mutex);
+    RethrowLoaderErrorLocked(*queue_state);
+    if (queue_state->queue.empty()) {
+        return std::nullopt;
+    }
+
+    ReplayFrame frame = std::move(queue_state->queue.front());
+    queue_state->queue.pop_front();
+    lock.unlock();
+    queue_state->cv_not_full.notify_one();
+    return frame;
+}
+
+bool IsReplayLoadingFinished(ReplayQueueState* queue_state) {
+    std::lock_guard<std::mutex> lock(queue_state->mutex);
+    if (queue_state->loader_error) {
+        std::rethrow_exception(queue_state->loader_error);
+    }
+    return queue_state->loading_finished && queue_state->queue.empty();
+}
+
 void DrawReplayOverlay(
     cv::Mat& image,
     const std::string& label,
@@ -413,6 +532,15 @@ int main(int argc, char** argv) {
             frame_paths.resize(static_cast<std::size_t>(options.frames));
         }
 
+        ReplayQueueState queue_state;
+        ReplayLoaderHandle loader_handle;
+        loader_handle.queue_state = &queue_state;
+        loader_handle.thread = std::thread(
+            ReplayLoaderWorker,
+            frame_paths,
+            &queue_state,
+            options.verbose);
+
         newnewhand::GlfwSceneViewerConfig viewer_config;
         viewer_config.draw_world_axes = true;
         viewer_config.has_cam1_pose = true;
@@ -425,51 +553,80 @@ int main(int argc, char** argv) {
         }
 
         const auto playback_interval = std::chrono::microseconds(1000000 / options.playback_fps);
-        double replay_fps = 0.0;
-        auto previous_loop_time = std::chrono::steady_clock::now();
+        auto current_frame = WaitPopReplayFrame(&queue_state);
+        if (!current_frame.has_value()) {
+            throw std::runtime_error("replay package does not contain any loadable frames");
+        }
 
-        for (const auto& frame_path : frame_paths) {
-            const auto loop_start = std::chrono::steady_clock::now();
-            ReplayFrame frame = LoadReplayFrame(frame_path);
+        double replay_fps = static_cast<double>(options.playback_fps);
+        auto previous_present_time = std::chrono::steady_clock::now();
+        auto next_present_time = std::chrono::steady_clock::now() + playback_interval;
+        bool preview_dirty = true;
+        bool first_frame_reported = false;
 
+        while (true) {
             const auto now = std::chrono::steady_clock::now();
-            const double dt_seconds = std::chrono::duration<double>(now - previous_loop_time).count();
-            previous_loop_time = now;
-            if (dt_seconds > 1e-6) {
-                const double instant_fps = 1.0 / dt_seconds;
-                replay_fps = replay_fps <= 0.0
-                    ? instant_fps
-                    : 0.85 * replay_fps + 0.15 * instant_fps;
+            bool should_exit = false;
+            bool presented_new_frame = false;
+
+            while (now >= next_present_time) {
+                auto next_frame = TryPopReplayFrame(&queue_state);
+                if (next_frame.has_value()) {
+                    current_frame = std::move(next_frame);
+                    presented_new_frame = true;
+                    preview_dirty = true;
+                    if (previous_present_time != std::chrono::steady_clock::time_point{}) {
+                        const double dt_seconds = std::chrono::duration<double>(now - previous_present_time).count();
+                        if (dt_seconds > 1e-6) {
+                            const double instant_fps = 1.0 / dt_seconds;
+                            replay_fps = replay_fps <= 0.0
+                                ? instant_fps
+                                : 0.85 * replay_fps + 0.15 * instant_fps;
+                        }
+                    }
+                    previous_present_time = now;
+                    next_present_time += playback_interval;
+                    continue;
+                }
+
+                if (IsReplayLoadingFinished(&queue_state)) {
+                    should_exit = true;
+                }
+                break;
             }
 
-            if (options.verbose) {
+            if (options.verbose && (!first_frame_reported || presented_new_frame)) {
                 std::cerr
-                    << "[replay] capture=" << frame.capture_index
-                    << " hands=" << frame.fused_frame.hands.size()
+                    << "[replay] capture=" << current_frame->capture_index
+                    << " hands=" << current_frame->fused_frame.hands.size()
                     << " tracking="
-                    << (frame.tracking_result.has_value() ? frame.tracking_result->status_message : "<none>")
+                    << (current_frame->tracking_result.has_value() ? current_frame->tracking_result->status_message : "<none>")
                     << "\n";
+                first_frame_reported = true;
             }
 
             if (options.glfw_view) {
                 const newnewhand::StereoCameraTrackingResult* tracking =
-                    frame.tracking_result.has_value() ? &*frame.tracking_result : nullptr;
-                if (!viewer.Render(frame.fused_frame, tracking)) {
+                    current_frame->tracking_result.has_value() ? &*current_frame->tracking_result : nullptr;
+                if (!viewer.Render(current_frame->fused_frame, tracking)) {
                     break;
                 }
-                viewer.SetTitle("Replay capture " + std::to_string(frame.capture_index));
+                viewer.SetTitle("Replay capture " + std::to_string(current_frame->capture_index));
             }
 
             if (options.preview) {
-                const std::array<std::string, 2> labels = {"LEFT", "RIGHT"};
-                for (std::size_t i = 0; i < frame.images.size(); ++i) {
-                    if (!frame.has_image[i] || frame.images[i].empty()) {
-                        continue;
+                if (preview_dirty || presented_new_frame) {
+                    const std::array<std::string, 2> labels = {"LEFT", "RIGHT"};
+                    for (std::size_t i = 0; i < current_frame->images.size(); ++i) {
+                        if (!current_frame->has_image[i] || current_frame->images[i].empty()) {
+                            continue;
+                        }
+                        cv::Mat preview;
+                        cv::resize(current_frame->images[i], preview, cv::Size(), 0.5, 0.5, cv::INTER_AREA);
+                        DrawReplayOverlay(preview, labels[i], *current_frame, replay_fps);
+                        cv::imshow("offline_replay_" + labels[i], preview);
                     }
-                    cv::Mat preview;
-                    cv::resize(frame.images[i], preview, cv::Size(), 0.5, 0.5, cv::INTER_AREA);
-                    DrawReplayOverlay(preview, labels[i], frame, replay_fps);
-                    cv::imshow("offline_replay_" + labels[i], preview);
+                    preview_dirty = false;
                 }
                 const int key = cv::waitKey(1);
                 if (key == 'q' || key == 27) {
@@ -477,10 +634,19 @@ int main(int argc, char** argv) {
                 }
             }
 
-            const auto elapsed = std::chrono::steady_clock::now() - loop_start;
-            const auto remaining = playback_interval - std::chrono::duration_cast<std::chrono::microseconds>(elapsed);
-            if (remaining.count() > 0) {
-                std::this_thread::sleep_for(remaining);
+            if (should_exit) {
+                break;
+            }
+
+            if (!options.glfw_view) {
+                const auto wake_deadline = std::min(
+                    next_present_time,
+                    std::chrono::steady_clock::now() + std::chrono::milliseconds(5));
+                const auto sleep_budget =
+                    std::chrono::duration_cast<std::chrono::microseconds>(wake_deadline - std::chrono::steady_clock::now());
+                if (sleep_budget.count() > 0) {
+                    std::this_thread::sleep_for(sleep_budget);
+                }
             }
         }
 

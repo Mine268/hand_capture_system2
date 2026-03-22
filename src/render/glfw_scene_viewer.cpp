@@ -128,6 +128,48 @@ std::array<float, 3> ToArray(const cv::Vec3f& v) {
     return {v[0], v[1], v[2]};
 }
 
+float DegreesToRadians(float degrees) {
+    return degrees * static_cast<float>(M_PI) / 180.0f;
+}
+
+cv::Matx33f RotationXDegrees(float degrees) {
+    const float radians = DegreesToRadians(degrees);
+    const float c = std::cos(radians);
+    const float s = std::sin(radians);
+    return cv::Matx33f(
+        1.0f, 0.0f, 0.0f,
+        0.0f, c, -s,
+        0.0f, s, c);
+}
+
+cv::Matx33f RotationYDegrees(float degrees) {
+    const float radians = DegreesToRadians(degrees);
+    const float c = std::cos(radians);
+    const float s = std::sin(radians);
+    return cv::Matx33f(
+        c, 0.0f, s,
+        0.0f, 1.0f, 0.0f,
+        -s, 0.0f, c);
+}
+
+cv::Matx33f RotationZDegrees(float degrees) {
+    const float radians = DegreesToRadians(degrees);
+    const float c = std::cos(radians);
+    const float s = std::sin(radians);
+    return cv::Matx33f(
+        c, -s, 0.0f,
+        s, c, 0.0f,
+        0.0f, 0.0f, 1.0f);
+}
+
+cv::Matx33f ViewRotationFromConfig(const GlfwSceneViewerConfig& config) {
+    // Match the fixed-function transform order in Render():
+    // roll around Z, then pitch around X, then yaw around Y.
+    return RotationZDegrees(config.roll_degrees)
+        * RotationXDegrees(config.pitch_degrees)
+        * RotationYDegrees(config.yaw_degrees);
+}
+
 }  // namespace
 
 GlfwSceneViewer::GlfwSceneViewer(GlfwSceneViewerConfig config)
@@ -200,7 +242,7 @@ bool GlfwSceneViewer::Initialize() {
     }
 
     last_frame_time_seconds_ = glfwGetTime();
-    std::cerr << "[glfw] controls: W/A/S/D move in world XZ, Q/E move in world Y, arrow keys rotate yaw/pitch, U/O roll, Z/X zoom, ESC close window\n";
+    std::cerr << "[glfw] controls: W/A/S/D move relative to current view, Q/E move in world Y, arrow keys rotate yaw/pitch, U/O roll, Z/X zoom, ESC close window\n";
     return true;
 }
 
@@ -306,23 +348,44 @@ void GlfwSceneViewer::Shutdown() {
 
 void GlfwSceneViewer::HandleInput(float dt_seconds) {
     const float delta = config_.angular_speed_degrees * dt_seconds;
+    const float translation_delta = config_.translation_speed * dt_seconds;
+    const cv::Matx33f world_from_camera = ViewRotationFromConfig(config_).t();
+    cv::Vec3f forward = world_from_camera * cv::Vec3f(0.0f, 0.0f, -1.0f);
+    cv::Vec3f right = world_from_camera * cv::Vec3f(1.0f, 0.0f, 0.0f);
+    const float forward_norm = cv::norm(forward);
+    const float right_norm = cv::norm(right);
+    if (forward_norm > 1e-6f) {
+        forward *= (1.0f / forward_norm);
+    }
+    if (right_norm > 1e-6f) {
+        right *= (1.0f / right_norm);
+    }
+
     if (glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS) {
-        config_.world_offset_z += config_.translation_speed * dt_seconds;
+        config_.world_offset_x += forward[0] * translation_delta;
+        config_.world_offset_y += forward[1] * translation_delta;
+        config_.world_offset_z += forward[2] * translation_delta;
     }
     if (glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS) {
-        config_.world_offset_z -= config_.translation_speed * dt_seconds;
+        config_.world_offset_x -= forward[0] * translation_delta;
+        config_.world_offset_y -= forward[1] * translation_delta;
+        config_.world_offset_z -= forward[2] * translation_delta;
     }
     if (glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS) {
-        config_.world_offset_x -= config_.translation_speed * dt_seconds;
+        config_.world_offset_x -= right[0] * translation_delta;
+        config_.world_offset_y -= right[1] * translation_delta;
+        config_.world_offset_z -= right[2] * translation_delta;
     }
     if (glfwGetKey(window_, GLFW_KEY_D) == GLFW_PRESS) {
-        config_.world_offset_x += config_.translation_speed * dt_seconds;
+        config_.world_offset_x += right[0] * translation_delta;
+        config_.world_offset_y += right[1] * translation_delta;
+        config_.world_offset_z += right[2] * translation_delta;
     }
     if (glfwGetKey(window_, GLFW_KEY_Q) == GLFW_PRESS) {
-        config_.world_offset_y += config_.translation_speed * dt_seconds;
+        config_.world_offset_y += translation_delta;
     }
     if (glfwGetKey(window_, GLFW_KEY_E) == GLFW_PRESS) {
-        config_.world_offset_y -= config_.translation_speed * dt_seconds;
+        config_.world_offset_y -= translation_delta;
     }
     if (glfwGetKey(window_, GLFW_KEY_LEFT) == GLFW_PRESS) {
         config_.yaw_degrees -= delta;
